@@ -17,15 +17,14 @@ CLASS_COLORS = {
     "#000000": 5,  # void
 }
 
-REAL_ONES = {
-    "#8429F6": 0,  # Water
-    "#E2A929": 1,  # Land (unpaved area)
-    "#3C1098": 2,  # Road
-    "#FEDD3A": 3,  # Building
-    "#6EC1E4": 4,  # Vegetation
-    "#9B9B9B": 5,  # Unlabeled
-}
-
+# REAL_ONES = {
+#     "#8429F6": 0,  # Water
+#     "#E2A929": 1,  # Land (unpaved area)
+#     "#3C1098": 2,  # Road
+#     "#FEDD3A": 3,  # Building
+#     "#6EC1E4": 4,  # Vegetation
+#     "#9B9B9B": 5,  # Unlabeled
+# }
 
 class DubaiDataset(Dataset):
     def __init__(self, image_paths, mask_paths, transform=None):
