@@ -166,7 +166,7 @@ def evaluate_full_resolution(model, val_img_paths, val_mask_paths, num_classes=6
     return np.mean(mean_per_class_ious)
 
 # --- 3. Main K-Fold Training Execution ---
-def run_kfold_training(dataset_base_dir="./Dataset_5Fold", num_epochs=15, batch_size=4, device='cuda'):
+def run_kfold_training(dataset_base_dir="./Dataset_5Fold", num_epochs=30, batch_size=24, device='cuda'):
     train_transform, val_transform = get_transforms(img_size=512)
     fold_mious = []
     
@@ -188,9 +188,9 @@ def run_kfold_training(dataset_base_dir="./Dataset_5Fold", num_epochs=15, batch_
         train_dataset = DubaiDataset(train_imgs, train_masks, transform=train_transform)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True)
         
-        # EfficientNet-B3 U-Net (6 total output channels, index 5 is ignored in loss)
+        # EfficientNet-B0 U-Net (6 total output channels, index 5 is ignored in loss)
         model = smp.Unet(
-            encoder_name="efficientnet-b3",
+            encoder_name="efficientnet-b0",
             encoder_weights="imagenet",
             in_channels=3,
             classes=6

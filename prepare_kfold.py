@@ -99,7 +99,7 @@ if __name__ == "__main__":
     create_5fold_split(
         img_dir="./Dataset_Flattened/images", 
         mask_dir="./Dataset_Flattened/masks", 
-        output_base_dir="./Dataset_5Fold", 
+        output_base_dir="./Dataset_5Fold_512", 
         tile_size=512, 
         stride=256
     )

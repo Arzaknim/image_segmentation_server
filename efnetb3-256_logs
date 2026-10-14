@@ -1,0 +1,99 @@
+==================== TRAINING FOLD 0 / 4 ====================
+Epoch [1/15] | Train Loss: 1.1448
+Epoch [2/15] | Train Loss: 0.6916
+Epoch [3/15] | Train Loss: 0.5812
+Epoch [4/15] | Train Loss: 0.5070
+Epoch [5/15] | Train Loss: 0.4624
+Epoch [6/15] | Train Loss: 0.4221
+Epoch [7/15] | Train Loss: 0.4015
+Epoch [8/15] | Train Loss: 0.3597
+Epoch [9/15] | Train Loss: 0.3467
+Epoch [10/15] | Train Loss: 0.3173
+Epoch [11/15] | Train Loss: 0.3115
+Epoch [12/15] | Train Loss: 0.2996
+Epoch [13/15] | Train Loss: 0.2843
+Epoch [14/15] | Train Loss: 0.2678
+Epoch [15/15] | Train Loss: 0.2744
+Evaluating fold 0 on full-resolution validation images...
+--> Fold 0 Full-Res mIoU: 0.5304
+
+==================== TRAINING FOLD 1 / 4 ====================
+Epoch [1/15] | Train Loss: 1.1256
+Epoch [2/15] | Train Loss: 0.6893
+Epoch [3/15] | Train Loss: 0.5767
+Epoch [4/15] | Train Loss: 0.5091
+Epoch [5/15] | Train Loss: 0.4697
+Epoch [6/15] | Train Loss: 0.4424
+Epoch [7/15] | Train Loss: 0.4082
+Epoch [8/15] | Train Loss: 0.3785
+Epoch [9/15] | Train Loss: 0.3633
+Epoch [10/15] | Train Loss: 0.3395
+Epoch [11/15] | Train Loss: 0.3134
+Epoch [12/15] | Train Loss: 0.3082
+Epoch [13/15] | Train Loss: 0.2956
+Epoch [14/15] | Train Loss: 0.2884
+Epoch [15/15] | Train Loss: 0.2811
+Evaluating fold 1 on full-resolution validation images...
+--> Fold 1 Full-Res mIoU: 0.6064
+
+==================== TRAINING FOLD 2 / 4 ====================
+Epoch [1/15] | Train Loss: 1.0722
+Epoch [2/15] | Train Loss: 0.7048
+Epoch [3/15] | Train Loss: 0.5956
+Epoch [4/15] | Train Loss: 0.5282
+Epoch [5/15] | Train Loss: 0.4629
+Epoch [6/15] | Train Loss: 0.4306
+Epoch [7/15] | Train Loss: 0.3875
+Epoch [8/15] | Train Loss: 0.3698
+Epoch [9/15] | Train Loss: 0.3499
+Epoch [10/15] | Train Loss: 0.3328
+Epoch [11/15] | Train Loss: 0.3143
+Epoch [12/15] | Train Loss: 0.3084
+Epoch [13/15] | Train Loss: 0.2854
+Epoch [14/15] | Train Loss: 0.2783
+Epoch [15/15] | Train Loss: 0.2853
+Evaluating fold 2 on full-resolution validation images...
+--> Fold 2 Full-Res mIoU: 0.5027
+
+==================== TRAINING FOLD 3 / 4 ====================
+Epoch [1/15] | Train Loss: 1.0177
+Epoch [2/15] | Train Loss: 0.6923
+Epoch [3/15] | Train Loss: 0.5820
+Epoch [4/15] | Train Loss: 0.5057
+Epoch [5/15] | Train Loss: 0.4472
+Epoch [6/15] | Train Loss: 0.4403
+Epoch [7/15] | Train Loss: 0.3854
+Epoch [8/15] | Train Loss: 0.3575
+Epoch [9/15] | Train Loss: 0.3490
+Epoch [10/15] | Train Loss: 0.3270
+Epoch [11/15] | Train Loss: 0.3093
+Epoch [12/15] | Train Loss: 0.2874
+Epoch [13/15] | Train Loss: 0.2839
+Epoch [14/15] | Train Loss: 0.2697
+Epoch [15/15] | Train Loss: 0.2521
+Evaluating fold 3 on full-resolution validation images...
+--> Fold 3 Full-Res mIoU: 0.5315
+
+==================== TRAINING FOLD 4 / 4 ====================
+Epoch [1/15] | Train Loss: 1.3077
+Epoch [2/15] | Train Loss: 0.7353
+Epoch [3/15] | Train Loss: 0.6053
+Epoch [4/15] | Train Loss: 0.5140
+Epoch [5/15] | Train Loss: 0.4651
+Epoch [6/15] | Train Loss: 0.4237
+Epoch [7/15] | Train Loss: 0.3950
+Epoch [8/15] | Train Loss: 0.3658
+Epoch [9/15] | Train Loss: 0.3349
+Epoch [10/15] | Train Loss: 0.3151
+Epoch [11/15] | Train Loss: 0.2925
+Epoch [12/15] | Train Loss: 0.2873
+Epoch [13/15] | Train Loss: 0.2720
+Epoch [14/15] | Train Loss: 0.2528
+Epoch [15/15] | Train Loss: 0.2805
+Evaluating fold 4 on full-resolution validation images...
+--> Fold 4 Full-Res mIoU: 0.5521
+
+========================================
+Cross-Validation Complete!
+Average 5-Fold mIoU: 0.5446
+========================================
