@@ -1,11 +1,11 @@
 import torch
-import torch.nn as nn
 from pathlib import Path
 from torch.utils.data import DataLoader
 import segmentation_models_pytorch as smp
 from sklearn.model_selection import KFold
 
 from dubai_dataset import DubaiDataset, get_transforms
+from segmentation_loss import CrossEntropyDiceLoss
 
 
 NUM_CLASSES = 6
@@ -134,8 +134,11 @@ def main():
             in_channels=3,
             classes=NUM_CLASSES,
         ).to(device)
-        criterion = nn.CrossEntropyLoss()
+        # Original criterion: nn.CrossEntropyLoss()
+        criterion = CrossEntropyDiceLoss()
+        # Original optimizer: torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
         optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
         print(
             f"Fold {fold}/{NUM_FOLDS}: training on {len(train_dataset)} samples, "
@@ -143,7 +146,11 @@ def main():
         )
         for epoch in range(epochs):
             train_loss = train_one_epoch(model, train_loader, criterion, optimizer, device)
-            print(f"Fold {fold} | Epoch {epoch + 1:02d}/{epochs} | Train Loss: {train_loss:.4f}")
+            scheduler.step()
+            print(
+                f"Fold {fold} | Epoch {epoch + 1:02d}/{epochs} "
+                f"| Train Loss: {train_loss:.4f} | LR: {scheduler.get_last_lr()[0]:.2e}"
+            )
 
         test_loss, test_iou = evaluate(model, test_loader, criterion, device)
         fold_test_losses.append(test_loss)

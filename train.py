@@ -1,11 +1,11 @@
 import os
 import glob
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
 import segmentation_models_pytorch as smp
 from sklearn.model_selection import train_test_split
 from dubai_dataset import DubaiDataset, get_transforms
+from segmentation_loss import CrossEntropyDiceLoss
 
 def train_one_epoch(model, dataloader, criterion, optimizer, device):
     model.train()
@@ -92,18 +92,26 @@ def main():
     ).to(device)
 
     # 4. Loss and Optimizer
-    criterion = nn.CrossEntropyLoss()
+    # Original criterion: nn.CrossEntropyLoss()
+    criterion = CrossEntropyDiceLoss()
+    # Original optimizer: torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
 
     best_iou = 0.0
     epochs = 20
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
     print(f"Starting training on {device} with {len(train_dataset)} training images...")
     for epoch in range(epochs):
         train_loss = train_one_epoch(model, train_loader, criterion, optimizer, device)
         val_loss, val_iou = validate(model, val_loader, criterion, device, num_classes=6)
+        scheduler.step()
 
-        print(f"Epoch [{epoch+1:02d}/{epochs}] | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Val mIoU: {val_iou:.4f}")
+        print(
+            f"Epoch [{epoch+1:02d}/{epochs}] | Train Loss: {train_loss:.4f} "
+            f"| Val Loss: {val_loss:.4f} | Val mIoU: {val_iou:.4f} "
+            f"| LR: {scheduler.get_last_lr()[0]:.2e}"
+        )
 
         # Save best model checkpoint
         if val_iou > best_iou:

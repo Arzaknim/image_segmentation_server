@@ -1,15 +1,17 @@
 import os
 import glob
+import json
+from datetime import datetime, timezone
 import cv2
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
 import segmentation_models_pytorch as smp
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+from segmentation_loss import CrossEntropyDiceLoss
 
 # --- 1. Your Custom Color-Mapped Dataset Class ---
 CLASS_COLORS = {
@@ -21,6 +23,24 @@ CLASS_COLORS = {
     "#9B9B9B": 5,  # Unlabeled
     "#000000": 5,  # void
 }
+
+CLASS_NAMES = {
+    0: "Water",
+    1: "Land (unpaved area)",
+    2: "Road",
+    3: "Building",
+    4: "Vegetation",
+    5: "Unlabeled",
+}
+
+
+def save_training_log(log_path, log_data):
+    temporary_path = f"{log_path}.tmp"
+    with open(temporary_path, "w", encoding="utf-8") as log_file:
+        json.dump(log_data, log_file, indent=2)
+        log_file.write("\n")
+    os.replace(temporary_path, log_path)
+
 
 class DubaiDataset(Dataset):
     def __init__(self, image_paths, mask_paths, transform=None):
@@ -161,14 +181,69 @@ def evaluate_full_resolution(model, val_img_paths, val_mask_paths, num_classes=6
                 union = np.logical_or(pred_inds, true_inds).sum()
                 if union > 0:
                     all_class_ious[cls].append(intersection / union)
-                    
-    mean_per_class_ious = [np.mean(ious) if ious else 0.0 for cls, ious in all_class_ious.items() if cls != ignore_index]
-    return np.mean(mean_per_class_ious)
+
+    per_class_ious = {}
+    print("Per-class IoUs:\n")
+    for cls, ious in all_class_ious.items():
+        if cls != ignore_index:
+            class_iou = float(np.mean(ious)) if ious else 0.0
+            per_class_ious[CLASS_NAMES[cls]] = class_iou
+            print(f"  {CLASS_NAMES[cls]}: {class_iou:.4f}\n")
+    mean_iou = float(np.mean(list(per_class_ious.values())))
+    return mean_iou, per_class_ious
 
 # --- 3. Main K-Fold Training Execution ---
-def run_kfold_training(dataset_base_dir="./Dataset_5Fold", num_epochs=30, batch_size=24, device='cuda'):
+def run_kfold_training(dataset_base_dir="./Dataset_5Fold_512", num_epochs=30, batch_size=6, device='cuda'):
     train_transform, val_transform = get_transforms(img_size=512)
     fold_mious = []
+    started_at = datetime.now(timezone.utc)
+    log_dir = "training_logs"
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(
+        log_dir,
+        f"kfold_training_{started_at.strftime('%Y%m%d_%H%M%S_%f')}.json",
+    )
+    training_log = {
+        "status": "running",
+        "started_at": started_at.isoformat(),
+        "model": {
+            "architecture": "Unet",
+            "encoder": "efficientnet-b0",
+            "encoder_weights": "imagenet",
+            "input_channels": 3,
+            "classes": 6,
+        },
+        "hyperparameters": {
+            "dataset_base_dir": dataset_base_dir,
+            "num_folds": 5,
+            "num_epochs": num_epochs,
+            "batch_size": batch_size,
+            "device": str(device),
+            "optimizer": {
+                "name": "AdamW",
+                "learning_rate": 1e-3,
+                "weight_decay": 1e-4,
+            },
+            "scheduler": {
+                "name": "CosineAnnealingLR",
+                "T_max": num_epochs,
+                "eta_min": 1e-6,
+            },
+            "criterion": {
+                "name": "CrossEntropyDiceLoss",
+                "ignore_index": 5,
+            },
+            "tile_size": 512,
+            "tile_stride": 256,
+            "class_names": {
+                str(class_id): class_name
+                for class_id, class_name in CLASS_NAMES.items()
+            },
+        },
+        "folds": [],
+    }
+    save_training_log(log_path, training_log)
+    print(f"Writing training logs to {log_path}")
     
     for fold_idx in range(5):
         print(f"\n==================== TRAINING FOLD {fold_idx} / 4 ====================")
@@ -196,12 +271,25 @@ def run_kfold_training(dataset_base_dir="./Dataset_5Fold", num_epochs=30, batch_
             classes=6
         ).to(device)
         
-        criterion = nn.CrossEntropyLoss(ignore_index=5)
-        optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-3)
-        
+        # Original criterion: nn.CrossEntropyLoss(ignore_index=5)
+        criterion = CrossEntropyDiceLoss(ignore_index=5)
+        # Original optimizer: optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-3)
+        optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-6)
+        fold_log = {
+            "fold": fold_idx,
+            "training_samples": len(train_dataset),
+            "validation_samples": len(val_imgs),
+            "checkpoint": f"efficientnet_b3_fold_{fold_idx}.pth",
+            "epochs": [],
+            "validation": None,
+        }
+        training_log["folds"].append(fold_log)
+
         for epoch in range(num_epochs):
             model.train()
             running_loss = 0.0
+            current_lr = optimizer.param_groups[0]["lr"]
             
             for imgs, masks in train_loader:
                 imgs, masks = imgs.to(device), masks.to(device)
@@ -213,13 +301,30 @@ def run_kfold_training(dataset_base_dir="./Dataset_5Fold", num_epochs=30, batch_
                 optimizer.step()
                 
                 running_loss += loss.item()
-                
-            print(f"Epoch [{epoch+1}/{num_epochs}] | Train Loss: {running_loss / len(train_loader):.4f}")
+            epoch_loss = running_loss / len(train_loader)
+            scheduler.step()
+            print(
+                f"Epoch [{epoch+1}/{num_epochs}] | Train Loss: {epoch_loss:.4f} "
+                f"| LR: {current_lr:.2e}"
+            )
+            fold_log["epochs"].append({
+                "epoch": epoch + 1,
+                "training_loss": epoch_loss,
+                "learning_rate": current_lr,
+            })
+            save_training_log(log_path, training_log)
             
         # Evaluate fold on full-resolution validation images
         print(f"Evaluating fold {fold_idx} on full-resolution validation images...")
-        fold_miou = evaluate_full_resolution(model, val_imgs, val_masks, num_classes=6, ignore_index=5, device=device)
+        fold_miou, per_class_ious = evaluate_full_resolution(
+            model, val_imgs, val_masks, num_classes=6, ignore_index=5, device=device
+        )
         print(f"--> Fold {fold_idx} Full-Res mIoU: {fold_miou:.4f}")
+        fold_log["validation"] = {
+            "mean_iou": fold_miou,
+            "per_class_iou": per_class_ious,
+        }
+        save_training_log(log_path, training_log)
         
         fold_mious.append(fold_miou)
         torch.save(model.state_dict(), f"efficientnet_b3_fold_{fold_idx}.pth")
@@ -228,6 +333,10 @@ def run_kfold_training(dataset_base_dir="./Dataset_5Fold", num_epochs=30, batch_
     print(f"Cross-Validation Complete!")
     print(f"Average 5-Fold mIoU: {np.mean(fold_mious):.4f}")
     print(f"========================================")
+    training_log["status"] = "completed"
+    training_log["completed_at"] = datetime.now(timezone.utc).isoformat()
+    training_log["average_mean_iou"] = float(np.mean(fold_mious))
+    save_training_log(log_path, training_log)
 
 if __name__ == "__main__":
     run_kfold_training()
