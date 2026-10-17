@@ -1,0 +1,40 @@
+{
+  "timestamp": "2026-10-17T15:31:10Z",
+  "engine": "rust_axum",
+  "model_path": "w_onnx/efficientnet_b0_tiled.onnx",
+  "input_path": "web_upload/Tile8_image_part_004.jpg",
+  "output_path": "base64_stream",
+  "tiling": {
+    "tile_size": 512,
+    "stride": 256
+  },
+  "images": [
+    {
+      "image_filename": "Tile8_image_part_004.jpg",
+      "image_path": "web_upload/Tile8_image_part_004.jpg",
+      "output_mask_path": "web_mask_20261017_153110.png",
+      "dimensions": {
+        "width": 2149,
+        "height": 1480
+      },
+      "timing": {
+        "total_inference_time_seconds": 3.9802,
+        "total_inference_time_ms": 3980.2,
+        "pure_onnx_forward_seconds": 3.4339,
+        "tile_count": 40,
+        "avg_tile_forward_ms": 85.85,
+        "pre_post_processing_seconds": 0.5463
+      }
+    }
+  ],
+  "summary": {
+    "images_processed": 1,
+    "total_tiles_computed": 40,
+    "total_inference_time_seconds": 3.9802,
+    "avg_inference_time_per_image_seconds": 3.9802,
+    "pure_onnx_forward_seconds": 3.4339,
+    "avg_tile_forward_ms": 85.85,
+    "total_elapsed_time_seconds": 3.9802,
+    "results_saved_to": "web_client"
+  }
+}

@@ -8,3 +8,17 @@ description = "Clean Rust inference engine for the EfficientNet-B0 U-Net Dubai a
 ort = "2.0.0-rc.9"
 ndarray = "0.15"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.7", features = ["multipart"] }
+tower-http = { version = "0.5", features = ["cors"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.23"
+
+[[bin]]
+name = "dubai_segmentation_inference"
+path = "src/main.rs"
+
+[[bin]]
+name = "dubai_segmentation_server"
+path = "src/server_main.rs"

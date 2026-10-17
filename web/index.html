@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dubai Aerial Segmentation — ONNX & Axum</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="brand-icon">D</div>
+      <div>
+        <h1>Dubai Aerial Segmentation</h1>
+        <span>High-Resolution U-Net Inference Engine &mdash; Rust Axum &amp; ONNX Runtime</span>
+      </div>
+    </div>
+    <div class="badges">
+      <div class="badge active"><div class="badge-dot"></div> ORT CPU Ready</div>
+      <div class="badge">Model: EfficientNet-B0</div>
+      <div class="badge">6 Classes</div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Left Sidebar -->
+    <div class="sidebar">
+      <div class="card">
+        <div class="card-title">Upload Aerial Image</div>
+        <div class="dropzone" id="dropzone">
+          <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+          </svg>
+          <p>Drag and drop image file here, or <b>browse</b></p>
+          <span style="font-size: 0.7rem; color: var(--text-muted);">Supports JPG, PNG, TIFF up to 50MB</span>
+          <input type="file" id="fileInput" accept="image/*">
+        </div>
+
+        <div class="file-preview-strip" id="fileStrip">
+          <img id="thumbImg" src="" alt="Thumbnail">
+          <div class="file-info">
+            <div class="file-name" id="fileName">image.jpg</div>
+            <div class="file-size" id="fileSize">0 KB</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Tiling Parameters</div>
+        <div class="form-group">
+          <label>Tile Size <span class="range-val" id="valTileSize">512</span> px</label>
+          <input type="range" id="inputTileSize" min="256" max="1024" step="128" value="512">
+        </div>
+        <div class="form-group">
+          <label>Stride (Overlap) <span class="range-val" id="valStride">256</span> px</label>
+          <input type="range" id="inputStride" min="128" max="512" step="64" value="256">
+        </div>
+
+        <button class="btn" id="runBtn" disabled>
+          <div class="spinner" id="spinner"></div>
+          <span id="btnText">Select Image First</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Workspace -->
+    <div class="content-area">
+      <!-- Toolbar -->
+      <div class="view-controls">
+        <div class="segmented-control" id="viewModeGroup">
+          <button class="active" data-mode="side">Side-by-Side</button>
+          <button data-mode="overlay">Overlay Blend</button>
+          <button data-mode="mask">Mask Only</button>
+        </div>
+
+        <div class="overlay-slider-control" id="overlaySliderCtrl">
+          <span>Opacity</span>
+          <input type="range" id="overlayOpacity" min="0" max="1" step="0.05" value="0.6">
+        </div>
+
+        <a id="downloadBtn" class="download-btn" style="display: none;" download="segmented_mask.png">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          Download Mask PNG
+        </a>
+      </div>
+
+      <!-- Viewer Card -->
+      <div class="card viewer-card">
+        <div class="empty-state" id="emptyState">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+          </svg>
+          <h3>No segmentation yet</h3>
+          <p style="font-size: 0.8rem; margin-top: 0.4rem;">Select or drag an aerial image on the left, then click <b>Run Segmentation</b>.</p>
+        </div>
+
+        <div class="image-container" id="imageContainer">
+          <!-- Populated by JS based on view mode -->
+        </div>
+      </div>
+
+      <!-- Results Grid -->
+      <div class="results-grid" id="resultsGrid">
+        <!-- Timing Card -->
+        <div class="card">
+          <div class="card-title">Inference Timing Breakdown</div>
+          <div class="metric-list" id="timingList">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+        <!-- Class Distribution Card -->
+        <div class="card">
+          <div class="card-title">Semantic Class Distribution</div>
+          <div id="classLegendList">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    Dubai Satellite Aerial Segmentation Web Server &bull; Axum 0.7 &bull; ONNX Runtime 1.20 &bull; EfficientNet-B0 Tiled U-Net
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
+
