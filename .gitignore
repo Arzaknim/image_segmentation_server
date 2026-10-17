@@ -1,8 +1,16 @@
 Dataset_Flattened
 dubai_dataset
 *.pth
+*.onnx
 Dataset_5Fold*
 Dataset_Tiled
 .vscode
 *.zip
 __pycache__
+preds*
+target/
+*.o
+dubai_segmentation_cpp
+src_cpp/third_party/onnxruntime-linux-x64*
+src_cpp/third_party/onnxruntime
+src_cpp/build/

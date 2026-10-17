@@ -240,11 +240,11 @@ def evaluate_full_resolution(
 
 
 def run_tiled_training(
-    image_dir="./Dataset_Flattened/images",
-    mask_dir="./Dataset_Flattened/masks",
+    image_dir="../Dataset_Flattened/images",
+    mask_dir="../Dataset_Flattened/masks",
     test_size=0.2,
     random_seed=42,
-    num_epochs=30,
+    num_epochs=40,
     batch_size=6,
     tile_size=512,
     tile_stride=256,
@@ -282,13 +282,13 @@ def run_tiled_training(
 
     train_transform, validation_transform = get_transforms(img_size=tile_size)
     started_at = datetime.now(timezone.utc)
-    log_dir = "training_logs"
+    log_dir = "../training_logs"
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(
         log_dir,
         f"tiled_training_{started_at.strftime('%Y%m%d_%H%M%S_%f')}.json",
     )
-    checkpoint_path = "efficientnet_b0_tiled.pth"
+    checkpoint_path = "../efficientnet_b0_tiled.pth"
     training_log = {
         "status": "running",
         "started_at": started_at.isoformat(),
@@ -379,7 +379,7 @@ def run_tiled_training(
             scheduler = optim.lr_scheduler.CosineAnnealingLR(
                 optimizer,
                 T_max=num_epochs,
-                eta_min=1e-6,
+                eta_min=1e-5,
             )
 
             print(

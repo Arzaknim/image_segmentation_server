@@ -3,10 +3,10 @@ import cv2
 import numpy as np
 from collections import Counter
 
-mask_paths = glob.glob("./Dataset_Flattened/masks/*.png") + glob.glob("./Dataset_Flattened/masks/*.jpg")
+mask_paths = glob.glob("../Dataset_Flattened/masks/*.png") + glob.glob("../Dataset_Flattened/masks/*.jpg")
 
 if not mask_paths:
-    print("No masks found in ./Dataset_Flattened/masks/!")
+    print("No masks found in ../Dataset_Flattened/masks/!")
 else:
     color_counter = Counter()
     print(f"Scanning {len(mask_paths)} masks for actual pixel colors...")

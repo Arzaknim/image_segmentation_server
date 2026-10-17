@@ -97,9 +97,9 @@ def create_5fold_split(img_dir, mask_dir, output_base_dir, tile_size=512, stride
 
 if __name__ == "__main__":
     create_5fold_split(
-        img_dir="./Dataset_Flattened/images", 
-        mask_dir="./Dataset_Flattened/masks", 
-        output_base_dir="./Dataset_5Fold_512", 
+        img_dir="../Dataset_Flattened/images", 
+        mask_dir="../Dataset_Flattened/masks", 
+        output_base_dir="../Dataset_5Fold_512", 
         tile_size=512, 
         stride=256
     )

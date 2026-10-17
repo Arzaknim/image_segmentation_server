@@ -1,0 +1,10 @@
+[package]
+name = "dubai_segmentation_inference"
+version = "0.1.0"
+edition = "2021"
+description = "Clean Rust inference engine for the EfficientNet-B0 U-Net Dubai aerial segmentation model with ONNX Runtime"
+
+[dependencies]
+ort = "2.0.0-rc.9"
+ndarray = "0.15"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }

@@ -193,11 +193,11 @@ def evaluate_full_resolution(model, val_img_paths, val_mask_paths, num_classes=6
     return mean_iou, per_class_ious
 
 # --- 3. Main K-Fold Training Execution ---
-def run_kfold_training(dataset_base_dir="./Dataset_5Fold_512", num_epochs=30, batch_size=6, device='cuda'):
+def run_kfold_training(dataset_base_dir="../Dataset_5Fold_512", num_epochs=30, batch_size=6, device='cuda'):
     train_transform, val_transform = get_transforms(img_size=512)
     fold_mious = []
     started_at = datetime.now(timezone.utc)
-    log_dir = "training_logs"
+    log_dir = "../training_logs"
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(
         log_dir,
@@ -280,7 +280,7 @@ def run_kfold_training(dataset_base_dir="./Dataset_5Fold_512", num_epochs=30, ba
             "fold": fold_idx,
             "training_samples": len(train_dataset),
             "validation_samples": len(val_imgs),
-            "checkpoint": f"efficientnet_b3_fold_{fold_idx}.pth",
+            "checkpoint": f"../efficientnet_b3_fold_{fold_idx}.pth",
             "epochs": [],
             "validation": None,
         }
@@ -327,7 +327,7 @@ def run_kfold_training(dataset_base_dir="./Dataset_5Fold_512", num_epochs=30, ba
         save_training_log(log_path, training_log)
         
         fold_mious.append(fold_miou)
-        torch.save(model.state_dict(), f"efficientnet_b3_fold_{fold_idx}.pth")
+        torch.save(model.state_dict(), f"../efficientnet_b3_fold_{fold_idx}.pth")
         
     print(f"\n========================================")
     print(f"Cross-Validation Complete!")

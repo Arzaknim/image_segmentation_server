@@ -98,9 +98,9 @@ def split_and_tile_dataset(
 if __name__ == "__main__":
     # Adjust your paths here:
     split_and_tile_dataset(
-        img_dir="./Dataset_Flattened/images", 
-        mask_dir="./Dataset_Flattened/masks", 
-        output_base_dir="./Dataset_Tiled_Better", 
+        img_dir="../Dataset_Flattened/images", 
+        mask_dir="../Dataset_Flattened/masks", 
+        output_base_dir="../Dataset_Tiled_Better", 
         val_split=0.2, 
         tile_size=512, 
         stride=256

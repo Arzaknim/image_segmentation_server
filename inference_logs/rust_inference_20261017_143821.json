@@ -1,0 +1,40 @@
+{
+  "timestamp": "2026-10-17T14:38:21Z",
+  "engine": "rust",
+  "model_path": "w_onnx/efficientnet_b0_tiled.onnx",
+  "input_path": "Dataset_Flattened/images/Tile1_image_part_001.jpg",
+  "output_path": "preds_rust/tile1_mask.png",
+  "tiling": {
+    "tile_size": 512,
+    "stride": 256
+  },
+  "images": [
+    {
+      "image_filename": "Tile1_image_part_001.jpg",
+      "image_path": "Dataset_Flattened/images/Tile1_image_part_001.jpg",
+      "output_mask_path": "preds_rust/tile1_mask.png",
+      "dimensions": {
+        "width": 797,
+        "height": 644
+      },
+      "timing": {
+        "total_inference_time_seconds": 0.8190,
+        "total_inference_time_ms": 819.0,
+        "pure_onnx_forward_seconds": 0.7170,
+        "tile_count": 6,
+        "avg_tile_forward_ms": 119.51,
+        "pre_post_processing_seconds": 0.1020
+      }
+    }
+  ],
+  "summary": {
+    "images_processed": 1,
+    "total_tiles_computed": 6,
+    "total_inference_time_seconds": 0.8190,
+    "avg_inference_time_per_image_seconds": 0.8190,
+    "pure_onnx_forward_seconds": 0.7170,
+    "avg_tile_forward_ms": 119.51,
+    "total_elapsed_time_seconds": 0.8190,
+    "results_saved_to": "preds_rust/tile1_mask.png"
+  }
+}

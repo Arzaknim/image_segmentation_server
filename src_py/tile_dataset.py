@@ -73,10 +73,10 @@ def tile_images_and_masks(img_dir, mask_dir, out_img_dir, out_mask_dir, tile_siz
 if __name__ == "__main__":
     # Example usage:
     tile_images_and_masks(
-        img_dir="./Dataset_Flattened/images",
-        mask_dir="./Dataset_Flattened/masks",
-        out_img_dir="./Dataset_Tiled/images",
-        out_mask_dir="./Dataset_Tiled/masks",
+        img_dir="../Dataset_Flattened/images",
+        mask_dir="../Dataset_Flattened/masks",
+        out_img_dir="../Dataset_Tiled/images",
+        out_mask_dir="../Dataset_Tiled/masks",
         tile_size=512,
         stride=256
     )

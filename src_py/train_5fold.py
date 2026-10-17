@@ -92,8 +92,8 @@ def evaluate(model, dataloader, criterion, device):
 
 def main():
     image_paths, mask_paths = get_image_mask_paths(
-        "./Dataset_Flattened/images",
-        "./Dataset_Flattened/masks",
+        "../Dataset_Flattened/images",
+        "../Dataset_Flattened/masks",
     )
     if len(image_paths) < NUM_FOLDS:
         raise ValueError(f"At least {NUM_FOLDS} image/mask pairs are required for {NUM_FOLDS}-fold CV")
@@ -155,7 +155,7 @@ def main():
         test_loss, test_iou = evaluate(model, test_loader, criterion, device)
         fold_test_losses.append(test_loss)
         fold_test_ious.append(test_iou)
-        checkpoint_path = f"dubai_model_fold_{fold}.pth"
+        checkpoint_path = f"../dubai_model_fold_{fold}.pth"
         torch.save(model.state_dict(), checkpoint_path)
         print(
             f"Fold {fold} | Test Loss: {test_loss:.4f} | Test mIoU: {test_iou:.4f} "

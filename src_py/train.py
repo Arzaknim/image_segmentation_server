@@ -59,8 +59,8 @@ def validate(model, dataloader, criterion, device, num_classes=6):
 
 def main():
     # 1. Point to your Dubai dataset extracted folders
-    image_dir = "./Dataset_Flattened/images"  # Update with your actual image path
-    mask_dir = "./Dataset_Flattened/masks"    # Update with your actual mask path
+    image_dir = "../Dataset_Flattened/images"  # Update with your actual image path
+    mask_dir = "../Dataset_Flattened/masks"    # Update with your actual mask path
 
     image_paths = sorted(glob.glob(os.path.join(image_dir, "*.jpg")) + glob.glob(os.path.join(image_dir, "*.png")))
     mask_paths = sorted(glob.glob(os.path.join(mask_dir, "*.jpg")) + glob.glob(os.path.join(mask_dir, "*.png")))
@@ -116,7 +116,7 @@ def main():
         # Save best model checkpoint
         if val_iou > best_iou:
             best_iou = val_iou
-            torch.save(model.state_dict(), "best_dubai_model.pth")
+            torch.save(model.state_dict(), "../best_dubai_model.pth")
             print(f"--> Saved Best Model (mIoU: {best_iou:.4f})")
 
 if __name__ == "__main__":

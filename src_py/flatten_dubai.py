@@ -2,7 +2,7 @@ import os
 import shutil
 from pathlib import Path
 
-def flatten_dubai_dataset(source_root="./", output_root="./Dataset_Flattened"):
+def flatten_dubai_dataset(source_root="../", output_root="../Dataset_Flattened"):
     source_path = Path(source_root)
     out_img_dir = Path(output_root) / "images"
     out_mask_dir = Path(output_root) / "masks"
@@ -53,4 +53,4 @@ def flatten_dubai_dataset(source_root="./", output_root="./Dataset_Flattened"):
 
 if __name__ == "__main__":
     # Point this to the folder containing your Tile1, Tile2... directories
-    flatten_dubai_dataset(source_root="dubai_dataset", output_root="./Dataset_Flattened")
+    flatten_dubai_dataset(source_root="../dubai_dataset", output_root="../Dataset_Flattened")
