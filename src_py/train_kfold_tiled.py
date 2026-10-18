@@ -12,6 +12,7 @@ import segmentation_models_pytorch as smp
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from segmentation_loss import CrossEntropyDiceLoss
+from model_factory import ModelFactory
 
 # --- 1. Your Custom Color-Mapped Dataset Class ---
 CLASS_COLORS = {
@@ -193,7 +194,19 @@ def evaluate_full_resolution(model, val_img_paths, val_mask_paths, num_classes=6
     return mean_iou, per_class_ious
 
 # --- 3. Main K-Fold Training Execution ---
-def run_kfold_training(dataset_base_dir="../Dataset_5Fold_512", num_epochs=30, batch_size=6, device='cuda'):
+def run_kfold_training(
+    dataset_base_dir="../Dataset_5Fold_512",
+    num_epochs=30,
+    batch_size=6,
+    device=None,
+    model_name="efficientnet_b0",
+    pretrained=True,
+):
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device(device)
+
     train_transform, val_transform = get_transforms(img_size=512)
     fold_mious = []
     started_at = datetime.now(timezone.utc)
@@ -203,18 +216,19 @@ def run_kfold_training(dataset_base_dir="../Dataset_5Fold_512", num_epochs=30, b
         log_dir,
         f"kfold_training_{started_at.strftime('%Y%m%d_%H%M%S_%f')}.json",
     )
+    canonical_model = ModelFactory.resolve_model_name(model_name)
     training_log = {
         "status": "running",
         "started_at": started_at.isoformat(),
         "model": {
-            "architecture": "Unet",
-            "encoder": "efficientnet-b0",
-            "encoder_weights": "imagenet",
+            "name": canonical_model,
+            "architecture": canonical_model,
             "input_channels": 3,
             "classes": 6,
         },
         "hyperparameters": {
             "dataset_base_dir": dataset_base_dir,
+            "model_name": canonical_model,
             "num_folds": 5,
             "num_epochs": num_epochs,
             "batch_size": batch_size,
@@ -263,24 +277,34 @@ def run_kfold_training(dataset_base_dir="../Dataset_5Fold_512", num_epochs=30, b
         train_dataset = DubaiDataset(train_imgs, train_masks, transform=train_transform)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True)
         
-        # EfficientNet-B0 U-Net (6 total output channels, index 5 is ignored in loss)
-        model = smp.Unet(
-            encoder_name="efficientnet-b0",
-            encoder_weights="imagenet",
+        # Build model via ModelFactory
+        model = ModelFactory.create_model(
+            model_name=model_name,
+            num_classes=6,
             in_channels=3,
-            classes=6
+            pretrained=pretrained,
         ).to(device)
+
+        if fold_idx == 0:
+            training_log["model"] = ModelFactory.get_model_info(
+                model,
+                model_name=model_name,
+                num_classes=6,
+                in_channels=3,
+                pretrained=pretrained,
+            )
+            save_training_log(log_path, training_log)
+
+        checkpoint_path = f"../{canonical_model}_fold_{fold_idx}.pth"
         
-        # Original criterion: nn.CrossEntropyLoss(ignore_index=5)
         criterion = CrossEntropyDiceLoss(ignore_index=5)
-        # Original optimizer: optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-3)
         optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-6)
         fold_log = {
             "fold": fold_idx,
             "training_samples": len(train_dataset),
             "validation_samples": len(val_imgs),
-            "checkpoint": f"../efficientnet_b3_fold_{fold_idx}.pth",
+            "checkpoint": checkpoint_path,
             "epochs": [],
             "validation": None,
         }
@@ -327,7 +351,12 @@ def run_kfold_training(dataset_base_dir="../Dataset_5Fold_512", num_epochs=30, b
         save_training_log(log_path, training_log)
         
         fold_mious.append(fold_miou)
-        torch.save(model.state_dict(), f"../efficientnet_b3_fold_{fold_idx}.pth")
+        torch.save(model.state_dict(), checkpoint_path)
+        if hasattr(model, "reparameterize"):
+            reparam_path = checkpoint_path.replace(".pth", "_reparam.pth")
+            reparam_model = ModelFactory.prepare_for_inference_or_export(model)
+            torch.save(reparam_model.state_dict(), reparam_path)
+            print(f"Saved reparameterized fold checkpoint to {reparam_path}")
         
     print(f"\n========================================")
     print(f"Cross-Validation Complete!")
@@ -338,5 +367,32 @@ def run_kfold_training(dataset_base_dir="../Dataset_5Fold_512", num_epochs=30, b
     training_log["average_mean_iou"] = float(np.mean(fold_mious))
     save_training_log(log_path, training_log)
 
+
 if __name__ == "__main__":
-    run_kfold_training()
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Run 5-Fold cross validation training on tiled aerial dataset.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "-m",
+        "--model",
+        default="efficientnet_b0",
+        help="Model architecture: 'efficientnet_b0', 'segformer_b0', 'segformer_b1', 'fastvit_t8', 'fastvit_sa12', etc.",
+    )
+    parser.add_argument("--epochs", type=int, default=30, help="Number of training epochs per fold")
+    parser.add_argument("--batch-size", type=int, default=6, help="Training batch size")
+    parser.add_argument("--device", default=None, help="Device to train on ('cuda' or 'cpu')")
+    parser.add_argument("--dataset-dir", default="../Dataset_5Fold_512", help="Base directory of 5-fold dataset")
+    parser.add_argument("--no-pretrained", action="store_true", help="Do not load ImageNet pretrained weights")
+    args = parser.parse_args()
+
+    run_kfold_training(
+        dataset_base_dir=args.dataset_dir,
+        num_epochs=args.epochs,
+        batch_size=args.batch_size,
+        device=args.device,
+        model_name=args.model,
+        pretrained=not args.no_pretrained,
+    )

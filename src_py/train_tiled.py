@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader
 
 from dubai_dataset import DubaiDataset
 from segmentation_loss import CrossEntropyDiceLoss
+from model_factory import ModelFactory
 
 
 NUM_CLASSES = 6
@@ -250,6 +251,9 @@ def run_tiled_training(
     tile_stride=256,
     num_workers=4,
     device=None,
+    model_name="efficientnet_b0",
+    pretrained=True,
+    checkpoint_path=None,
 ):
     image_paths, mask_paths = get_image_mask_paths(image_dir, mask_dir)
     if len(image_paths) < 2:
@@ -288,14 +292,16 @@ def run_tiled_training(
         log_dir,
         f"tiled_training_{started_at.strftime('%Y%m%d_%H%M%S_%f')}.json",
     )
-    checkpoint_path = "../efficientnet_b0_tiled.pth"
+    canonical_model = ModelFactory.resolve_model_name(model_name)
+    if checkpoint_path is None:
+        checkpoint_path = f"../{canonical_model}_tiled.pth"
+
     training_log = {
         "status": "running",
         "started_at": started_at.isoformat(),
         "model": {
-            "architecture": "Unet",
-            "encoder": "efficientnet-b0",
-            "encoder_weights": "imagenet",
+            "name": canonical_model,
+            "architecture": canonical_model,
             "input_channels": 3,
             "classes": NUM_CLASSES,
         },
@@ -364,12 +370,21 @@ def run_tiled_training(
                 pin_memory=device.type == "cuda",
             )
 
-            model = smp.Unet(
-                encoder_name="efficientnet-b0",
-                encoder_weights="imagenet",
+            model = ModelFactory.create_model(
+                model_name=model_name,
+                num_classes=NUM_CLASSES,
                 in_channels=3,
-                classes=NUM_CLASSES,
+                pretrained=pretrained,
             ).to(device)
+            training_log["model"] = ModelFactory.get_model_info(
+                model,
+                model_name=model_name,
+                num_classes=NUM_CLASSES,
+                in_channels=3,
+                pretrained=pretrained,
+            )
+            save_training_log(log_path, training_log)
+
             criterion = CrossEntropyDiceLoss(ignore_index=IGNORE_INDEX)
             optimizer = optim.AdamW(
                 model.parameters(),
@@ -425,6 +440,11 @@ def run_tiled_training(
                 "per_class_iou": per_class_ious,
             }
             torch.save(model.state_dict(), checkpoint_path)
+            if hasattr(model, "reparameterize"):
+                reparam_path = checkpoint_path.replace(".pth", "_reparam.pth")
+                reparam_model = ModelFactory.prepare_for_inference_or_export(model)
+                torch.save(reparam_model.state_dict(), reparam_path)
+                print(f"Saved reparameterized checkpoint to {reparam_path}")
     except Exception as error:
         training_log["status"] = "failed"
         training_log["error"] = f"{type(error).__name__}: {error}"
@@ -440,4 +460,32 @@ def run_tiled_training(
 
 
 if __name__ == "__main__":
-    run_tiled_training()
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Train semantic segmentation model on tiled aerial imagery.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "-m",
+        "--model",
+        default="efficientnet_b0",
+        help="Model architecture: 'efficientnet_b0', 'segformer_b0', 'segformer_b1', 'fastvit_t8', 'fastvit_sa12', etc.",
+    )
+    parser.add_argument("--epochs", type=int, default=40, help="Number of training epochs")
+    parser.add_argument("--batch-size", type=int, default=6, help="Training batch size")
+    parser.add_argument("--device", default=None, help="Device to train on ('cuda' or 'cpu')")
+    parser.add_argument("--image-dir", default="../Dataset_Flattened/images", help="Path to input images directory")
+    parser.add_argument("--mask-dir", default="../Dataset_Flattened/masks", help="Path to ground truth masks directory")
+    parser.add_argument("--no-pretrained", action="store_true", help="Do not load ImageNet pretrained weights")
+    args = parser.parse_args()
+
+    run_tiled_training(
+        image_dir=args.image_dir,
+        mask_dir=args.mask_dir,
+        num_epochs=args.epochs,
+        batch_size=args.batch_size,
+        device=args.device,
+        model_name=args.model,
+        pretrained=not args.no_pretrained,
+    )
