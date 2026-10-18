@@ -1,0 +1,307 @@
+{
+  "status": "failed",
+  "started_at": "2026-10-18T09:47:16.689343+00:00",
+  "model": {
+    "name": "segformer_b1",
+    "architecture": "smp_segformer",
+    "encoder": "mit_b1",
+    "pretrained": true,
+    "input_channels": 3,
+    "classes": 6,
+    "total_parameters": 13678790,
+    "trainable_parameters": 13678790,
+    "has_reparameterize": false
+  },
+  "hyperparameters": {
+    "image_dir": "../Dataset_Flattened/images",
+    "mask_dir": "../Dataset_Flattened/masks",
+    "test_size": 0.2,
+    "random_seed": 42,
+    "num_epochs": 50,
+    "batch_size": 8,
+    "device": "cuda",
+    "optimizer": {
+      "name": "AdamW",
+      "learning_rate": 0.001,
+      "weight_decay": 0.0001
+    },
+    "scheduler": {
+      "name": "CosineAnnealingLR",
+      "T_max": 50,
+      "eta_min": 1e-06
+    },
+    "criterion": {
+      "name": "CrossEntropyDiceLoss",
+      "ignore_index": 5
+    },
+    "tile_size": 512,
+    "tile_stride": 256,
+    "class_names": {
+      "0": "Water",
+      "1": "Land (unpaved area)",
+      "2": "Road",
+      "3": "Building",
+      "4": "Vegetation",
+      "5": "Unlabeled"
+    }
+  },
+  "training_samples": 57,
+  "test_samples": 15,
+  "training_tiles": 1102,
+  "checkpoint": "../segformer_b1_tiled.pth",
+  "epochs": [
+    {
+      "epoch": 1,
+      "training_loss": 0.9682099883547712,
+      "learning_rate": 0.001
+    },
+    {
+      "epoch": 2,
+      "training_loss": 0.6991819662537203,
+      "learning_rate": 0.0009990232305719944
+    },
+    {
+      "epoch": 3,
+      "training_loss": 0.6483133935560549,
+      "learning_rate": 0.0009960967771506664
+    },
+    {
+      "epoch": 4,
+      "training_loss": 0.5871760258873664,
+      "learning_rate": 0.0009912321891107007
+    },
+    {
+      "epoch": 5,
+      "training_loss": 0.5411832789111267,
+      "learning_rate": 0.0009844486647586721
+    },
+    {
+      "epoch": 6,
+      "training_loss": 0.5073879726785497,
+      "learning_rate": 0.0009757729755661009
+    },
+    {
+      "epoch": 7,
+      "training_loss": 0.5178689304367384,
+      "learning_rate": 0.0009652393605146842
+    },
+    {
+      "epoch": 8,
+      "training_loss": 0.5495014372408499,
+      "learning_rate": 0.0009528893909706795
+    },
+    {
+      "epoch": 9,
+      "training_loss": 0.4554487737250631,
+      "learning_rate": 0.0009387718066217122
+    },
+    {
+      "epoch": 10,
+      "training_loss": 0.43126992294446526,
+      "learning_rate": 0.0009229423231234972
+    },
+    {
+      "epoch": 11,
+      "training_loss": 0.41893940157985515,
+      "learning_rate": 0.0009054634122155987
+    },
+    {
+      "epoch": 12,
+      "training_loss": 0.38757367672807724,
+      "learning_rate": 0.0008864040551740153
+    },
+    {
+      "epoch": 13,
+      "training_loss": 0.37050108976675683,
+      "learning_rate": 0.0008658394705735984
+    },
+    {
+      "epoch": 14,
+      "training_loss": 0.3737820635690014,
+      "learning_rate": 0.0008438508174347006
+    },
+    {
+      "epoch": 15,
+      "training_loss": 0.4942623890138581,
+      "learning_rate": 0.000820524874925601
+    },
+    {
+      "epoch": 16,
+      "training_loss": 0.4183802037836203,
+      "learning_rate": 0.000795953699884774
+    },
+    {
+      "epoch": 17,
+      "training_loss": 0.41256397811124634,
+      "learning_rate": 0.000770234263514603
+    },
+    {
+      "epoch": 18,
+      "training_loss": 0.34171045270026706,
+      "learning_rate": 0.0007434680686803488
+    },
+    {
+      "epoch": 19,
+      "training_loss": 0.3103723439460657,
+      "learning_rate": 0.0007157607493247108
+    },
+    {
+      "epoch": 20,
+      "training_loss": 0.3009628095341248,
+      "learning_rate": 0.0006872216535789154
+    },
+    {
+      "epoch": 21,
+      "training_loss": 0.28109458478306254,
+      "learning_rate": 0.0006579634122155987
+    },
+    {
+      "epoch": 22,
+      "training_loss": 0.2960471584987294,
+      "learning_rate": 0.0006281014941466028
+    },
+    {
+      "epoch": 23,
+      "training_loss": 0.30842119368797205,
+      "learning_rate": 0.0005977537507199335
+    },
+    {
+      "epoch": 24,
+      "training_loss": 0.27275998195372997,
+      "learning_rate": 0.0005670399506143305
+    },
+    {
+      "epoch": 25,
+      "training_loss": 0.2514563507912596,
+      "learning_rate": 0.0005360813071670099
+    },
+    {
+      "epoch": 26,
+      "training_loss": 0.24769475055476498,
+      "learning_rate": 0.0005049999999999998
+    },
+    {
+      "epoch": 27,
+      "training_loss": 0.24402087283221,
+      "learning_rate": 0.0004739186928329897
+    },
+    {
+      "epoch": 28,
+      "training_loss": 0.23645851462268136,
+      "learning_rate": 0.0004429600493856692
+    },
+    {
+      "epoch": 29,
+      "training_loss": 0.22711133605339134,
+      "learning_rate": 0.0004122462492800661
+    },
+    {
+      "epoch": 30,
+      "training_loss": 0.22340981670386562,
+      "learning_rate": 0.0003818985058533967
+    },
+    {
+      "epoch": 31,
+      "training_loss": 0.2243774282845741,
+      "learning_rate": 0.00035203658778440103
+    },
+    {
+      "epoch": 32,
+      "training_loss": 0.21892006665522304,
+      "learning_rate": 0.00032277834642108444
+    },
+    {
+      "epoch": 33,
+      "training_loss": 0.2276337387719734,
+      "learning_rate": 0.0002942392506752889
+    },
+    {
+      "epoch": 34,
+      "training_loss": 0.20479912139110254,
+      "learning_rate": 0.00026653193131965077
+    },
+    {
+      "epoch": 35,
+      "training_loss": 0.20014564820080183,
+      "learning_rate": 0.00023976573648539642
+    },
+    {
+      "epoch": 36,
+      "training_loss": 0.1922738675143022,
+      "learning_rate": 0.00021404630011522574
+    },
+    {
+      "epoch": 37,
+      "training_loss": 0.18593164418440333,
+      "learning_rate": 0.00018947512507439847
+    },
+    {
+      "epoch": 38,
+      "training_loss": 0.18441257713710765,
+      "learning_rate": 0.000166149182565299
+    },
+    {
+      "epoch": 39,
+      "training_loss": 0.18381506999694283,
+      "learning_rate": 0.00014416052942640132
+    },
+    {
+      "epoch": 40,
+      "training_loss": 0.1845417232024475,
+      "learning_rate": 0.00012359594482598432
+    },
+    {
+      "epoch": 41,
+      "training_loss": 0.18065681761492403,
+      "learning_rate": 0.00010453658778440102
+    },
+    {
+      "epoch": 42,
+      "training_loss": 0.1792937768133063,
+      "learning_rate": 8.70576768765026e-05
+    },
+    {
+      "epoch": 43,
+      "training_loss": 0.17458812102756568,
+      "learning_rate": 7.12281933782875e-05
+    },
+    {
+      "epoch": 44,
+      "training_loss": 0.17065345105155627,
+      "learning_rate": 5.71106090293204e-05
+    },
+    {
+      "epoch": 45,
+      "training_loss": 0.16964557542450415,
+      "learning_rate": 4.4760639485315563e-05
+    },
+    {
+      "epoch": 46,
+      "training_loss": 0.17116326191031564,
+      "learning_rate": 3.422702443389899e-05
+    },
+    {
+      "epoch": 47,
+      "training_loss": 0.1695294206566473,
+      "learning_rate": 2.5551335241327665e-05
+    },
+    {
+      "epoch": 48,
+      "training_loss": 0.16988096795908553,
+      "learning_rate": 1.876781088929908e-05
+    },
+    {
+      "epoch": 49,
+      "training_loss": 0.1694291903892576,
+      "learning_rate": 1.3903222849333505e-05
+    },
+    {
+      "epoch": 50,
+      "training_loss": 0.16971739036742658,
+      "learning_rate": 1.0976769428005579e-05
+    }
+  ],
+  "test": null,
+  "error": "RuntimeError: Wrong input shape height=512, width=510. Expected image height and width divisible by 32. Consider pad your images to shape (512, 512).",
+  "completed_at": "2026-10-18T10:27:56.445234+00:00"
+}

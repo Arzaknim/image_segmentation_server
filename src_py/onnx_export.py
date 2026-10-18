@@ -94,7 +94,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-    print(f"ONNX export successful: {output_onnx_path} ({os.path.getsize(output_onnx_path) / (1024 * 1024):.2f} MB)")
 
 
 def main():
@@ -135,8 +134,8 @@ def main():
         tile_size=args.tile_size,
         opset_version=args.opset,
     )
+    print(f"ONNX export successful: {output} ({os.path.getsize(output) / (1024 * 1024):.2f} MB)")
 
 
 if __name__ == "__main__":
     main()
-    )

@@ -145,6 +145,14 @@ def evaluate_full_resolution(model, val_img_paths, val_mask_paths, num_classes=6
                     tile = img_raw[y_start:y_start+tile_size, x_start:x_start+tile_size]
                     th, tw = tile.shape[:2]
                     
+                    # Pad edge tiles if smaller than tile_size (e.g. 510x544 images in Tile 2)
+                    if th < tile_size or tw < tile_size:
+                        pad_h = max(0, tile_size - th)
+                        pad_w = max(0, tile_size - tw)
+                        tile = cv2.copyMakeBorder(
+                            tile, 0, pad_h, 0, pad_w, cv2.BORDER_REFLECT
+                        )
+
                     # Apply normalization & tensor conversion manually for the tile
                     tile_norm = tile.astype(np.float32) / 255.0
                     mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)

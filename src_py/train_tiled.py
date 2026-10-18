@@ -196,13 +196,23 @@ def evaluate_full_resolution(
                     y_start:y_start + tile_size,
                     x_start:x_start + tile_size,
                 ]
+                tile_height, tile_width = tile.shape[:2]
+
+                # Pad edge tiles if smaller than tile_size (e.g. 510x544 images in Tile 2)
+                # to satisfy transformer divisibility requirements (divisible by 32).
+                if tile_height < tile_size or tile_width < tile_size:
+                    pad_h = max(0, tile_size - tile_height)
+                    pad_w = max(0, tile_size - tile_width)
+                    tile = cv2.copyMakeBorder(
+                        tile, 0, pad_h, 0, pad_w, cv2.BORDER_REFLECT
+                    )
+
                 tile_tensor = (
                     validation_transform(image=tile)["image"]
                     .unsqueeze(0)
                     .to(device)
                 )
                 probabilities = F.softmax(model(tile_tensor), dim=1).cpu().numpy()[0]
-                tile_height, tile_width = tile.shape[:2]
                 pred_canvas[
                     :, y_start:y_start + tile_height, x_start:x_start + tile_width
                 ] += probabilities[:, :tile_height, :tile_width]

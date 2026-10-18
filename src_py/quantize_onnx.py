@@ -258,12 +258,30 @@ def preprocess_onnx_graph(
 # Dynamic Quantization
 # ==============================================================================
 
+def find_depthwise_conv_nodes(model_path: str) -> List[str]:
+    """Finds all depthwise convolution node names in an ONNX model (group > 1)."""
+    try:
+        model = onnx.load(model_path)
+        nodes_to_exclude = []
+        for n in model.graph.node:
+            if n.op_type == "Conv":
+                attrs = {a.name: a.i for a in n.attribute if a.name == "group"}
+                if attrs.get("group", 1) > 1:
+                    nodes_to_exclude.append(n.name)
+        return nodes_to_exclude
+    except Exception as e:
+        logger.warning("Could not scan for depthwise convolutions: %s", e)
+        return []
+
+
 def quantize_onnx_dynamic(
     model_input: str,
     model_output: str,
     weight_type: QuantType = QuantType.QUInt8,
     per_channel: bool = True,
     op_types_to_quantize: Optional[List[str]] = None,
+    nodes_to_exclude: Optional[List[str]] = None,
+    exclude_depthwise: bool = False,
     run_pre_process: bool = True,
 ) -> str:
     """
@@ -277,6 +295,8 @@ def quantize_onnx_dynamic(
                      is the most compatible type for ConvInteger on CPUExecutionProvider.
         per_channel: Whether to quantize weights per-channel (recommended for segmentation accuracy).
         op_types_to_quantize: List of ONNX operator types to quantize (default: Conv, MatMul, Gemm).
+        nodes_to_exclude: Specific node names to exclude from quantization.
+        exclude_depthwise: Whether to automatically exclude depthwise convolutions (prevents latency regression).
         run_pre_process: Whether to run `quant_pre_process` first.
 
     Returns:
@@ -294,18 +314,27 @@ def quantize_onnx_dynamic(
         temp_preprocessed = str(Path(model_output).parent / f"temp_{Path(model_input).stem}_preproc.onnx")
         source_model = preprocess_onnx_graph(model_input, temp_preprocessed)
 
+    final_exclude = list(nodes_to_exclude or [])
+    if exclude_depthwise:
+        dw_nodes = find_depthwise_conv_nodes(source_model)
+        if dw_nodes:
+            logger.info("Auto-excluding %d depthwise convolution nodes from quantization to avoid memory-bound latency overhead.", len(dw_nodes))
+            final_exclude = list(set(final_exclude + dw_nodes))
+
     logger.info(
         "Executing dynamic quantization:\n"
         "  - Input Model:          %s\n"
         "  - Output Model:         %s\n"
         "  - Weight Type:          %s\n"
         "  - Per-channel weights:  %s\n"
-        "  - Quantized Op Types:   %s",
+        "  - Quantized Op Types:   %s\n"
+        "  - Excluded Nodes:       %d",
         source_model,
         model_output,
         weight_type.name,
         per_channel,
         op_types_to_quantize,
+        len(final_exclude),
     )
 
     t0 = time.perf_counter()
@@ -315,6 +344,7 @@ def quantize_onnx_dynamic(
         per_channel=per_channel,
         weight_type=weight_type,
         op_types_to_quantize=op_types_to_quantize,
+        nodes_to_exclude=final_exclude if final_exclude else None,
     )
     elapsed = time.perf_counter() - t0
     logger.info("Dynamic quantization finished in %.2fs.", elapsed)
@@ -599,6 +629,50 @@ def quantize_onnx(
             return QuantType.QInt8
         return default
 
+    # 0. Partial / Selective Mode (Optimized for real latency speedups)
+    if mode in ("partial", "selective"):
+        part_out = output_model
+        if part_out is None:
+            inp_p = Path(input_model)
+            part_out = str(inp_p.parent / f"{inp_p.stem}_partial_int8{inp_p.suffix}")
+
+        proto = onnx.load(input_model)
+        op_types = set(n.op_type for n in proto.graph.node)
+        has_matmul = "MatMul" in op_types or "Gemm" in op_types
+        has_layernorm = "LayerNormalization" in op_types
+
+        if has_matmul and has_layernorm:
+            # Transformer model (SegFormer / ViT):
+            # Quantize ONLY MatMul & Gemm, leaving Convs, LayerNorms, Reshapes untouched
+            logger.info("Detected Vision Transformer (SegFormer). Quantizing MatMul/Gemm layers only.")
+            w_type = resolve_quant_type(weight_type_str, default=QuantType.QInt8)
+            quantize_onnx_dynamic(
+                model_input=input_model,
+                model_output=part_out,
+                weight_type=w_type,
+                per_channel=per_channel,
+                op_types_to_quantize=["MatMul", "Gemm"],
+                run_pre_process=False,
+            )
+        else:
+            # Hybrid / Conv model (FastViT / EfficientNet):
+            # Quantize standard dense Convs, automatically excluding all depthwise convs
+            logger.info("Detected CNN / Hybrid model. Quantizing dense convolutions while excluding depthwise layers.")
+            w_type = resolve_quant_type(weight_type_str, default=QuantType.QUInt8)
+            quantize_onnx_dynamic(
+                model_input=input_model,
+                model_output=part_out,
+                weight_type=w_type,
+                per_channel=per_channel,
+                op_types_to_quantize=["Conv", "MatMul", "Gemm"],
+                exclude_depthwise=True,
+                run_pre_process=run_pre_process,
+            )
+        results["partial"] = part_out
+
+        if verify:
+            verify_and_benchmark(input_model, part_out, test_image_path=test_image)
+
     # 1. Dynamic Mode
     if mode in ("dynamic", "both", "all"):
         dyn_out = output_model
@@ -697,9 +771,14 @@ def parse_args() -> argparse.Namespace:
         "-m",
         "--mode",
         type=str,
-        default="dynamic",
-        choices=["dynamic", "static", "both", "all"],
-        help="Quantization mode: 'dynamic' (fast, no calibration data needed), 'static' (uses calibration data), or 'both'.",
+        default="partial",
+        choices=["partial", "dynamic", "static", "both", "all"],
+        help="Quantization mode: 'partial' (smart selective quantization for real latency speedup), 'dynamic', 'static', or 'both'.",
+    )
+    parser.add_argument(
+        "--exclude-depthwise",
+        action="store_true",
+        help="Exclude depthwise convolutions from quantization to prevent memory-bound latency penalty.",
     )
     parser.add_argument(
         "-w",

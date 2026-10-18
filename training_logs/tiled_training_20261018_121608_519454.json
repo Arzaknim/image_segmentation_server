@@ -1,0 +1,62 @@
+{
+  "status": "failed",
+  "started_at": "2026-10-18T12:16:08.519454+00:00",
+  "model": {
+    "name": "segformer_b1",
+    "architecture": "smp_segformer",
+    "encoder": "mit_b1",
+    "pretrained": true,
+    "input_channels": 3,
+    "classes": 6,
+    "total_parameters": 13678790,
+    "trainable_parameters": 13678790,
+    "has_reparameterize": false
+  },
+  "hyperparameters": {
+    "image_dir": "../Dataset_Flattened/images",
+    "mask_dir": "../Dataset_Flattened/masks",
+    "test_size": 0.2,
+    "random_seed": 42,
+    "num_epochs": 1,
+    "batch_size": 8,
+    "device": "cuda",
+    "optimizer": {
+      "name": "AdamW",
+      "learning_rate": 0.001,
+      "weight_decay": 0.0001
+    },
+    "scheduler": {
+      "name": "CosineAnnealingLR",
+      "T_max": 1,
+      "eta_min": 1e-06
+    },
+    "criterion": {
+      "name": "CrossEntropyDiceLoss",
+      "ignore_index": 5
+    },
+    "tile_size": 512,
+    "tile_stride": 256,
+    "class_names": {
+      "0": "Water",
+      "1": "Land (unpaved area)",
+      "2": "Road",
+      "3": "Building",
+      "4": "Vegetation",
+      "5": "Unlabeled"
+    }
+  },
+  "training_samples": 57,
+  "test_samples": 15,
+  "training_tiles": 1102,
+  "checkpoint": "../segformer_b1_tiled.pth",
+  "epochs": [
+    {
+      "epoch": 1,
+      "training_loss": 0.9419983388507864,
+      "learning_rate": 0.001
+    }
+  ],
+  "test": null,
+  "error": "RuntimeError: Wrong input shape height=512, width=510. Expected image height and width divisible by 32. Consider pad your images to shape (512, 512).",
+  "completed_at": "2026-10-18T12:17:05.815844+00:00"
+}
