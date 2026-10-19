@@ -1,0 +1,35 @@
+{
+  "model": {
+    "name": "efficientnet_b0",
+    "pretrained": true,
+    "checkpoint_path": null
+  },
+  "dataset": {
+    "image_dir": "../Dataset_Flattened/images",
+    "mask_dir": "../Dataset_Flattened/masks",
+    "test_size": 0.2,
+    "random_seed": 42,
+    "tile_size": 512,
+    "tile_stride": 256,
+    "num_workers": 4
+  },
+  "training": {
+    "num_epochs": 40,
+    "batch_size": 6,
+    "device": null
+  },
+  "optimizer": {
+    "name": "AdamW",
+    "lr": 0.001,
+    "weight_decay": 0.0001
+  },
+  "scheduler": {
+    "name": "CosineAnnealingLR",
+    "eta_min": 0.0001
+  },
+  "criterion": {
+    "name": "ce_dice",
+    "ignore_index": 5
+  }
+}
+

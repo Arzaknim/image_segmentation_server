@@ -1,0 +1,91 @@
+{
+  "status": "running",
+  "started_at": "2026-10-19T18:08:19.287927+00:00",
+  "model": {
+    "name": "efficientnet_b0",
+    "architecture": "smp_unet",
+    "encoder": "efficientnet-b0",
+    "pretrained": true,
+    "input_channels": 3,
+    "classes": 6,
+    "total_parameters": 6252194,
+    "trainable_parameters": 6252194,
+    "has_reparameterize": false
+  },
+  "hyperparameters": {
+    "image_dir": "../Dataset_Flattened/images",
+    "mask_dir": "../Dataset_Flattened/masks",
+    "test_size": 0.2,
+    "random_seed": 42,
+    "num_epochs": 40,
+    "batch_size": 6,
+    "device": "cuda",
+    "optimizer": {
+      "name": "AdamW",
+      "learning_rate": 0.001,
+      "weight_decay": 0.0001
+    },
+    "scheduler": {
+      "name": "CosineAnnealingLR",
+      "T_max": 40,
+      "eta_min": 1e-06
+    },
+    "criterion": {
+      "name": "LogitFuzzyLoss",
+      "ignore_index": 5,
+      "loss_type": "fuzzy"
+    },
+    "tile_size": 512,
+    "tile_stride": 256,
+    "class_names": {
+      "0": "Water",
+      "1": "Land (unpaved area)",
+      "2": "Road",
+      "3": "Building",
+      "4": "Vegetation",
+      "5": "Unlabeled"
+    }
+  },
+  "training_samples": 57,
+  "test_samples": 15,
+  "training_tiles": 1102,
+  "checkpoint": "../efficientnet_b0_tiled.pth",
+  "epochs": [
+    {
+      "epoch": 1,
+      "training_loss": 1.5610565606998228,
+      "learning_rate": 0.001
+    },
+    {
+      "epoch": 2,
+      "training_loss": 1.331155436008682,
+      "learning_rate": 0.0009984740801978985
+    },
+    {
+      "epoch": 3,
+      "training_loss": 1.2540032880925007,
+      "learning_rate": 0.0009939057285945933
+    },
+    {
+      "epoch": 4,
+      "training_loss": 1.2272728584206472,
+      "learning_rate": 0.00098632311059685
+    },
+    {
+      "epoch": 5,
+      "training_loss": 1.1662305402020146,
+      "learning_rate": 0.0009757729755661011
+    },
+    {
+      "epoch": 6,
+      "training_loss": 1.1333627774364936,
+      "learning_rate": 0.000962320368593087
+    },
+    {
+      "epoch": 7,
+      "training_loss": 1.1176429070708107,
+      "learning_rate": 0.0009460482294732421
+    }
+  ],
+  "test": null
+}

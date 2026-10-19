@@ -1,0 +1,267 @@
+{
+  "status": "completed",
+  "started_at": "2026-10-19T18:18:20.834420+00:00",
+  "model": {
+    "name": "efficientnet_b0",
+    "architecture": "smp_unet",
+    "encoder": "efficientnet-b0",
+    "pretrained": true,
+    "input_channels": 3,
+    "classes": 6,
+    "total_parameters": 6252194,
+    "trainable_parameters": 6252194,
+    "has_reparameterize": false
+  },
+  "hyperparameters": {
+    "image_dir": "../Dataset_Flattened/images",
+    "mask_dir": "../Dataset_Flattened/masks",
+    "test_size": 0.2,
+    "random_seed": 42,
+    "num_epochs": 40,
+    "batch_size": 6,
+    "device": "cuda",
+    "optimizer": {
+      "name": "AdamW",
+      "learning_rate": 0.001,
+      "weight_decay": 0.0001
+    },
+    "scheduler": {
+      "name": "CosineAnnealingLR",
+      "T_max": 40,
+      "eta_min": 1e-06
+    },
+    "criterion": {
+      "name": "LogitFuzzyLoss",
+      "ignore_index": 5,
+      "loss_type": "fuzzy"
+    },
+    "tile_size": 512,
+    "tile_stride": 256,
+    "class_names": {
+      "0": "Water",
+      "1": "Land (unpaved area)",
+      "2": "Road",
+      "3": "Building",
+      "4": "Vegetation",
+      "5": "Unlabeled"
+    }
+  },
+  "training_samples": 57,
+  "test_samples": 15,
+  "training_tiles": 1102,
+  "checkpoint": "../efficientnet_b0_tiled.pth",
+  "epochs": [
+    {
+      "epoch": 1,
+      "training_loss": 1.6574788251502977,
+      "learning_rate": 0.01
+    },
+    {
+      "epoch": 2,
+      "training_loss": 1.4928167653819393,
+      "learning_rate": 0.009984740801978984
+    },
+    {
+      "epoch": 3,
+      "training_loss": 1.427760676117428,
+      "learning_rate": 0.009939057285945931
+    },
+    {
+      "epoch": 4,
+      "training_loss": 1.38328226594873,
+      "learning_rate": 0.009863231105968498
+    },
+    {
+      "epoch": 5,
+      "training_loss": 1.3739723090467781,
+      "learning_rate": 0.00975772975566101
+    },
+    {
+      "epoch": 6,
+      "training_loss": 1.3231157200738868,
+      "learning_rate": 0.009623203685930868
+    },
+    {
+      "epoch": 7,
+      "training_loss": 1.315471987109868,
+      "learning_rate": 0.00946048229473242
+    },
+    {
+      "epoch": 8,
+      "training_loss": 1.28845187994616,
+      "learning_rate": 0.009270568813552756
+    },
+    {
+      "epoch": 9,
+      "training_loss": 1.2926427606229558,
+      "learning_rate": 0.00905463412215599
+    },
+    {
+      "epoch": 10,
+      "training_loss": 1.274117325048914,
+      "learning_rate": 0.008814009529720154
+    },
+    {
+      "epoch": 11,
+      "training_loss": 1.2588982495551966,
+      "learning_rate": 0.008550178566873411
+    },
+    {
+      "epoch": 12,
+      "training_loss": 1.2465771927807594,
+      "learning_rate": 0.00826476783923441
+    },
+    {
+      "epoch": 13,
+      "training_loss": 1.246623735029771,
+      "learning_rate": 0.007959536998847742
+    },
+    {
+      "epoch": 14,
+      "training_loss": 1.2305906861750053,
+      "learning_rate": 0.007636367895343947
+    },
+    {
+      "epoch": 15,
+      "training_loss": 1.2191180756650257,
+      "learning_rate": 0.007297252973710757
+    },
+    {
+      "epoch": 16,
+      "training_loss": 1.217278610123913,
+      "learning_rate": 0.006944282990207195
+    },
+    {
+      "epoch": 17,
+      "training_loss": 1.2032392026075651,
+      "learning_rate": 0.006579634122155991
+    },
+    {
+      "epoch": 18,
+      "training_loss": 1.2029834694741208,
+      "learning_rate": 0.006205554551086734
+    },
+    {
+      "epoch": 19,
+      "training_loss": 1.1873417149438183,
+      "learning_rate": 0.005824350601949144
+    },
+    {
+      "epoch": 20,
+      "training_loss": 1.1763038055433768,
+      "learning_rate": 0.005438372523852834
+    },
+    {
+      "epoch": 21,
+      "training_loss": 1.1752471959526007,
+      "learning_rate": 0.005050000000000001
+    },
+    {
+      "epoch": 22,
+      "training_loss": 1.1647626377926115,
+      "learning_rate": 0.004661627476147168
+    },
+    {
+      "epoch": 23,
+      "training_loss": 1.1575764376541664,
+      "learning_rate": 0.004275649398050859
+    },
+    {
+      "epoch": 24,
+      "training_loss": 1.1433129566983606,
+      "learning_rate": 0.003894445448913269
+    },
+    {
+      "epoch": 25,
+      "training_loss": 1.1374737772881012,
+      "learning_rate": 0.0035203658778440107
+    },
+    {
+      "epoch": 26,
+      "training_loss": 1.131888858419581,
+      "learning_rate": 0.003155717009792806
+    },
+    {
+      "epoch": 27,
+      "training_loss": 1.1175379927275184,
+      "learning_rate": 0.0028027470262892437
+    },
+    {
+      "epoch": 28,
+      "training_loss": 1.117410424075845,
+      "learning_rate": 0.0024636321046560537
+    },
+    {
+      "epoch": 29,
+      "training_loss": 1.109548515611465,
+      "learning_rate": 0.002140463001152259
+    },
+    {
+      "epoch": 30,
+      "training_loss": 1.0972124951504536,
+      "learning_rate": 0.001835232160765592
+    },
+    {
+      "epoch": 31,
+      "training_loss": 1.0944578902907467,
+      "learning_rate": 0.0015498214331265904
+    },
+    {
+      "epoch": 32,
+      "training_loss": 1.0932564987461277,
+      "learning_rate": 0.001285990470279847
+    },
+    {
+      "epoch": 33,
+      "training_loss": 1.0866886036582089,
+      "learning_rate": 0.0010453658778440107
+    },
+    {
+      "epoch": 34,
+      "training_loss": 1.0805256458678825,
+      "learning_rate": 0.0008294311864472438
+    },
+    {
+      "epoch": 35,
+      "training_loss": 1.0767200521029492,
+      "learning_rate": 0.0006395177052675795
+    },
+    {
+      "epoch": 36,
+      "training_loss": 1.0750954088411833,
+      "learning_rate": 0.00047679631406913065
+    },
+    {
+      "epoch": 37,
+      "training_loss": 1.0666590057137657,
+      "learning_rate": 0.00034227024433899
+    },
+    {
+      "epoch": 38,
+      "training_loss": 1.0645710012441105,
+      "learning_rate": 0.00023676889403150106
+    },
+    {
+      "epoch": 39,
+      "training_loss": 1.0678583727557949,
+      "learning_rate": 0.0001609427140540686
+    },
+    {
+      "epoch": 40,
+      "training_loss": 1.0644992184292816,
+      "learning_rate": 0.00011525919802101659
+    }
+  ],
+  "test": {
+    "mean_iou": 0.5763648332633908,
+    "per_class_iou": {
+      "Water": 0.8446114155001649,
+      "Land (unpaved area)": 0.7202161075446419,
+      "Road": 0.41525463012036984,
+      "Building": 0.544816588444284,
+      "Vegetation": 0.3569254247074935
+    }
+  },
+  "completed_at": "2026-10-19T18:59:46.730254+00:00",
+  "test_mean_iou": 0.5763648332633908
+}
