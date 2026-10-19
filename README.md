@@ -32,6 +32,7 @@ The system features:
     - [Environment Setup](#environment-setup)
     - [Dataset Preparation \& Tiling](#dataset-preparation--tiling)
     - [Running Model Training](#running-model-training)
+    - [Pure PyTorch Inference](#pure-pytorch-inference)
   - [2. ONNX Model Export](#2-onnx-model-export)
     - [Exporting Checkpoint](#exporting-checkpoint)
     - [Model Tensor Signatures](#model-tensor-signatures)
@@ -133,6 +134,7 @@ image_segmentation_server/
 │   ├── colour_pallate_masks.py        # Mask palette diagnostic utility
 │   ├── dubai_dataset.py               # PyTorch Dataset implementation
 │   ├── flatten_dubai.py               # Reorganizes raw tiles into flat dataset
+│   ├── infer.py                        # Pure PyTorch image/directory inference
 │   ├── onnx_export.py                 # Exports PyTorch checkpoint to ONNX
 │   ├── prepare_kfold.py               # K-Fold dataset partitioner
 │   ├── segmentation_loss.py           # CrossEntropy + Dice Loss definition
@@ -230,6 +232,39 @@ python3 src_py/train_kfold_tiled.py --model fastvit_t8 --epochs 30
 - **Data Augmentations**: Horizontal flips, vertical flips, random 90-degree rotations, and ImageNet RGB normalization.
 - **Evaluation**: Sliding-window inference with full-resolution test image mIoU calculation.
 - **Output Checkpoint**: Saved automatically based on architecture to `w_pth/{model}_tiled.pth` (plus `_reparam.pth` for FastViT).
+
+### Pure PyTorch Inference
+
+Run pure PyTorch inference without exporting to ONNX:
+
+```bash
+python3 src_py/infer.py \
+  --model efficientnet_b3 \
+  --input Dataset_Flattened/images/ \
+  --output preds_python/ \
+  --masks Dataset_Flattened/masks/
+```
+
+By default, the model factory loads ImageNet-pretrained **encoder** weights;
+`--weights` is optional and can be supplied to load a trained six-class
+segmentation checkpoint instead. Without `--weights`, the segmentation decoder
+is newly initialized, so this mode is useful for inference plumbing or
+fine-tuning, but does not provide a pretrained Dubai segmentation model.
+Pass `--no-pretrained` to skip loading the encoder's ImageNet weights.
+
+The input directory is searched recursively. Each image produces a full-resolution,
+six-class RGB PNG named `<image>_mask.png`, with nested input folders preserved.
+The pipeline uses ImageNet RGB normalization, 512-pixel tiles, a 256-pixel stride,
+and averages probabilities in overlapping regions. A single image can also be
+provided as `--input`; for that mode, `--output` may be a PNG filename or a
+directory. The checkpoint architecture passed to `--model` must match the weights.
+Use `--device cpu` to force CPU inference; by default CUDA is selected when available.
+When `--masks` is supplied, each input image is matched to a ground-truth mask by
+filename stem (so `.jpg` images can match `.png` masks). Masks may be grayscale
+class-ID images (`0`–`5`) or RGB images using the project palette above. The
+script prints per-image IoU and overall dataset IoU for Water, Land, Road,
+Building, and Vegetation; Unlabeled pixels are excluded, matching training
+evaluation.
 
 ---
 
