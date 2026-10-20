@@ -288,6 +288,7 @@ def calculate_iou(
     intersections = np.zeros(NUM_CLASSES - 1, dtype=np.uint64)
     unions = np.zeros(NUM_CLASSES - 1, dtype=np.uint64)
     per_class_iou = {}
+    present_ious = []
     for class_id in range(NUM_CLASSES - 1):
         predicted_class = (prediction == class_id) & valid_pixels
         target_class = (target == class_id) & valid_pixels
@@ -295,11 +296,14 @@ def calculate_iou(
         union = np.logical_or(predicted_class, target_class).sum()
         intersections[class_id] = intersection
         unions[class_id] = union
-        per_class_iou[CLASS_NAMES[class_id]] = (
-            float(intersection / union) if union else 0.0
-        )
+        if union > 0:
+            class_iou = float(intersection / union)
+            per_class_iou[CLASS_NAMES[class_id]] = class_iou
+            present_ious.append(class_iou)
+        else:
+            per_class_iou[CLASS_NAMES[class_id]] = float("nan")
 
-    mean_iou = float(np.mean(list(per_class_iou.values())))
+    mean_iou = float(np.mean(present_ious)) if present_ious else 0.0
     return per_class_iou, mean_iou, intersections, unions
 
 
@@ -421,21 +425,27 @@ def run_inference(
             total_unions += unions
             print(f"  IoU: mIoU={mean_iou:.4f}")
             for class_name, class_iou in per_class_iou.items():
-                print(f"    {class_name}: {class_iou:.4f}")
+                if np.isnan(class_iou):
+                    print(f"    {class_name}: N/A (absent)")
+                else:
+                    print(f"    {class_name}: {class_iou:.4f}")
 
     if mask_dir is not None:
         overall_iou = {
             CLASS_NAMES[class_id]: (
                 float(total_intersections[class_id] / total_unions[class_id])
                 if total_unions[class_id]
-                else 0.0
+                else float("nan")
             )
             for class_id in range(NUM_CLASSES - 1)
         }
-        overall_mean_iou = float(np.mean(list(overall_iou.values())))
+        overall_mean_iou = float(np.nanmean(list(overall_iou.values())))
         print(f"Overall dataset IoU: mIoU={overall_mean_iou:.4f}")
         for class_name, class_iou in overall_iou.items():
-            print(f"  {class_name}: {class_iou:.4f}")
+            if np.isnan(class_iou):
+                print(f"  {class_name}: N/A (absent from dataset)")
+            else:
+                print(f"  {class_name}: {class_iou:.4f}")
     return len(image_paths)
 
 

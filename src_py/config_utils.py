@@ -9,18 +9,29 @@ Provides merging between JSON config defaults and explicit CLI overrides.
 """
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
 
 def load_json_config(config_path: Union[str, Path]) -> Dict[str, Any]:
-    """Load and parse a JSON configuration file."""
+    """Load and parse a JSON or JSONC configuration file with comments."""
     path = Path(config_path)
     if not path.is_file():
         raise FileNotFoundError(f"Configuration file not found: {path}")
 
     with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+        content = f.read()
+
+    # Strip single-line (//) and multi-line (/* */) comments to allow annotated templates
+    clean_lines = []
+    for line in content.splitlines():
+        # Strip trailing single-line comment if not inside string
+        clean_lines.append(re.sub(r"\s*//.*$", "", line))
+    clean_content = "\n".join(clean_lines)
+    clean_content = re.sub(r"/\*.*?\*/", "", clean_content, flags=re.DOTALL)
+
+    data = json.loads(clean_content)
 
     if not isinstance(data, dict):
         raise ValueError(f"Root configuration must be a JSON object, got {type(data)}")
@@ -33,6 +44,9 @@ def flatten_config(config: Dict[str, Any]) -> Dict[str, Any]:
     flat: Dict[str, Any] = {}
 
     for key, val in config.items():
+        if key.startswith("_"):
+            continue
+
         if isinstance(val, dict):
             # Inspect nested section
             if key in ("model", "architecture"):
@@ -49,6 +63,7 @@ def flatten_config(config: Dict[str, Any]) -> Dict[str, Any]:
                     "dataset_base_dir",
                     "dataset_dir",
                     "test_size",
+                    "val_size",
                     "random_seed",
                     "tile_size",
                     "tile_stride",
@@ -59,7 +74,7 @@ def flatten_config(config: Dict[str, Any]) -> Dict[str, Any]:
                         norm_k = "tile_stride" if subk == "stride" else "dataset_dir" if subk == "dataset_base_dir" else subk
                         flat[norm_k] = val[subk]
             elif key in ("training", "train"):
-                for subk in ("num_epochs", "epochs", "batch_size", "device"):
+                for subk in ("num_epochs", "epochs", "batch_size", "device", "eval_every", "log_dir"):
                     if subk in val:
                         norm_k = "epochs" if subk == "num_epochs" else subk
                         flat[norm_k] = val[subk]
@@ -75,8 +90,11 @@ def flatten_config(config: Dict[str, Any]) -> Dict[str, Any]:
             elif key in ("scheduler", "sched"):
                 flat["scheduler"] = val
             else:
-                flat[key] = val
+                if not key.startswith("_"):
+                    flat[key] = val
         else:
+            if key.startswith("_"):
+                continue
             # Direct flat assignment
             norm_k = (
                 "model_name"

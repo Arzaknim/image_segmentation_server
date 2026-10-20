@@ -8,6 +8,7 @@
     "image_dir": "../Dataset_Flattened/images",
     "mask_dir": "../Dataset_Flattened/masks",
     "test_size": 0.2,
+    "val_size": 0.15,
     "random_seed": 42,
     "tile_size": 512,
     "tile_stride": 256,

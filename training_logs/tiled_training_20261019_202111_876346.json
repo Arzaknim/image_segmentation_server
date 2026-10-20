@@ -1,0 +1,78 @@
+{
+  "status": "running",
+  "started_at": "2026-10-19T20:21:11.876346+00:00",
+  "model": {
+    "name": "efficientnet_b0",
+    "architecture": "smp_unet",
+    "encoder": "efficientnet-b0",
+    "pretrained": true,
+    "input_channels": 3,
+    "classes": 6,
+    "total_parameters": 6252194,
+    "trainable_parameters": 6252194,
+    "has_reparameterize": false
+  },
+  "hyperparameters": {
+    "image_dir": "../Dataset_Flattened/images",
+    "mask_dir": "../Dataset_Flattened/masks",
+    "test_size": 0.2,
+    "random_seed": 42,
+    "num_epochs": 40,
+    "batch_size": 6,
+    "device": "cuda",
+    "optimizer": {
+      "name": "AdamW",
+      "learning_rate": 0.001,
+      "weight_decay": 0.0001
+    },
+    "scheduler": {
+      "name": "CosineAnnealingLR",
+      "T_max": 40,
+      "eta_min": 1e-06
+    },
+    "criterion": {
+      "name": "FocalSoftBCELoss",
+      "loss_type": "focal_bce",
+      "ignore_index": 5,
+      "dice_weight": 1.0,
+      "bce_weight": 1.0
+    },
+    "tile_size": 512,
+    "tile_stride": 256,
+    "class_names": {
+      "0": "Water",
+      "1": "Land (unpaved area)",
+      "2": "Road",
+      "3": "Building",
+      "4": "Vegetation",
+      "5": "Unlabeled"
+    }
+  },
+  "training_samples": 57,
+  "test_samples": 15,
+  "training_tiles": 1102,
+  "checkpoint": "../efficientnet_b0_tiled.pth",
+  "epochs": [
+    {
+      "epoch": 1,
+      "training_loss": 1.2814026310526092,
+      "learning_rate": 0.001
+    },
+    {
+      "epoch": 2,
+      "training_loss": 0.9592272796128926,
+      "learning_rate": 0.0009984602081996976
+    },
+    {
+      "epoch": 3,
+      "training_loss": 0.8875347083796175,
+      "learning_rate": 0.0009938503261272714
+    },
+    {
+      "epoch": 4,
+      "training_loss": 0.8379220480062135,
+      "learning_rate": 0.0009861987752386395
+    }
+  ],
+  "test": null
+}

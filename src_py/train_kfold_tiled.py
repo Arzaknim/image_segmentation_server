@@ -11,6 +11,7 @@ import argparse
 import glob
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -105,8 +106,8 @@ class DubaiDataset(Dataset):
         return img, mask
 
 
-def get_transforms(img_size: int = 512) -> Tuple[A.Compose, A.Compose]:
-    """Return data augmentation transforms for training and validation."""
+def get_transforms(img_size: int = 512) -> Tuple[A.Compose, A.Compose, A.Compose]:
+    """Return data augmentation transforms for training, validation tiles, and full-res inference."""
     train_transform = A.Compose([
         A.Resize(img_size, img_size),
         A.HorizontalFlip(p=0.5),
@@ -115,11 +116,138 @@ def get_transforms(img_size: int = 512) -> Tuple[A.Compose, A.Compose]:
         A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
         ToTensorV2(),
     ])
+    val_tile_transform = A.Compose([
+        A.Resize(img_size, img_size),
+        A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+        ToTensorV2(),
+    ])
     val_transform = A.Compose([
         A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
         ToTensorV2(),
     ])
-    return train_transform, val_transform
+    return train_transform, val_tile_transform, val_transform
+
+
+def tile_starts(length: int, tile_size: int, stride: int) -> list[int]:
+    """Calculate 1D tile start positions ensuring edge coverage."""
+    if length <= tile_size:
+        return [0]
+    starts = list(range(0, length - tile_size + 1, stride))
+    final_start = length - tile_size
+    if starts[-1] != final_start:
+        starts.append(final_start)
+    return starts
+
+
+def create_tiles(
+    image_paths: list[str],
+    mask_paths: list[str],
+    output_dir: str | Path,
+    tile_size: int = 512,
+    stride: int = 256,
+) -> Tuple[list[str], list[str], int]:
+    """Extract overlapping sliding-window tiles from source images and masks."""
+    image_output_dir = Path(output_dir) / "images"
+    mask_output_dir = Path(output_dir) / "masks"
+    image_output_dir.mkdir(parents=True, exist_ok=True)
+    mask_output_dir.mkdir(parents=True, exist_ok=True)
+    tile_count = 0
+
+    for image_path, mask_path in zip(image_paths, mask_paths):
+        image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        mask = cv2.imread(mask_path, cv2.IMREAD_COLOR)
+        if image is None:
+            raise FileNotFoundError(f"Could not read image: {image_path}")
+        if mask is None:
+            raise FileNotFoundError(f"Could not read mask: {mask_path}")
+        if image.shape[:2] != mask.shape[:2]:
+            raise ValueError(
+                f"Image and mask dimensions do not match for {image_path} and {mask_path}: "
+                f"{image.shape[:2]} != {mask.shape[:2]}"
+            )
+
+        height, width = image.shape[:2]
+        stem = Path(image_path).stem
+        for y_start in tile_starts(height, tile_size, stride):
+            for x_start in tile_starts(width, tile_size, stride):
+                image_tile = image[y_start:y_start + tile_size, x_start:x_start + tile_size]
+                mask_tile = mask[y_start:y_start + tile_size, x_start:x_start + tile_size]
+                th, tw = image_tile.shape[:2]
+                if th < tile_size or tw < tile_size:
+                    pad_h = max(0, tile_size - th)
+                    pad_w = max(0, tile_size - tw)
+                    image_tile = cv2.copyMakeBorder(
+                        image_tile, 0, pad_h, 0, pad_w, cv2.BORDER_REFLECT
+                    )
+                    mask_tile = cv2.copyMakeBorder(
+                        mask_tile, 0, pad_h, 0, pad_w, cv2.BORDER_REFLECT
+                    )
+                tile_name = f"{stem}_y{y_start}_x{x_start}.png"
+                image_tile_path = image_output_dir / tile_name
+                mask_tile_path = mask_output_dir / tile_name
+                if not cv2.imwrite(str(image_tile_path), image_tile):
+                    raise OSError(f"Could not write image tile: {image_tile_path}")
+                if not cv2.imwrite(str(mask_tile_path), mask_tile):
+                    raise OSError(f"Could not write mask tile: {mask_tile_path}")
+                tile_count += 1
+
+    return (
+        sorted(glob.glob(str(image_output_dir / "*.png"))),
+        sorted(glob.glob(str(mask_output_dir / "*.png"))),
+        tile_count,
+    )
+
+
+@torch.no_grad()
+def validate_tiles(
+    model: torch.nn.Module,
+    dataloader: DataLoader,
+    criterion: torch.nn.Module,
+    device: torch.device,
+    num_classes: int = NUM_CLASSES,
+    ignore_index: int = IGNORE_INDEX,
+) -> Tuple[float, float, Dict[str, float]]:
+    """Validate model on tiled dataloader calculating loss and global dataset mIoU."""
+    model.eval()
+    running_loss = 0.0
+    total_intersections = np.zeros(num_classes, dtype=np.int64)
+    total_unions = np.zeros(num_classes, dtype=np.int64)
+
+    for images, masks in dataloader:
+        images = images.to(device)
+        masks = masks.to(device).long()
+
+        outputs = model(images)
+        loss = criterion(outputs, masks)
+        running_loss += loss.item() * images.size(0)
+
+        preds = torch.argmax(outputs, dim=1).cpu().numpy()
+        true_masks = masks.cpu().numpy()
+
+        valid_pixels = true_masks != ignore_index
+        for class_id in range(num_classes):
+            if class_id == ignore_index:
+                continue
+            pred_class = (preds == class_id) & valid_pixels
+            true_class = (true_masks == class_id) & valid_pixels
+            intersection = np.logical_and(pred_class, true_class).sum()
+            union = np.logical_or(pred_class, true_class).sum()
+            total_intersections[class_id] += intersection
+            total_unions[class_id] += union
+
+    val_loss = running_loss / len(dataloader.dataset)
+    per_class_ious = {}
+    for class_id, class_name in CLASS_NAMES.items():
+        if class_id == ignore_index:
+            continue
+        per_class_ious[class_name] = (
+            float(total_intersections[class_id] / total_unions[class_id])
+            if total_unions[class_id] > 0
+            else float("nan")
+        )
+    present_ious = [v for v in per_class_ious.values() if not np.isnan(v)]
+    mean_iou = float(np.mean(present_ious)) if present_ious else 0.0
+    return val_loss, mean_iou, per_class_ious
 
 
 @torch.no_grad()
@@ -127,47 +255,34 @@ def evaluate_full_resolution(
     model: torch.nn.Module,
     val_imgs: list[str],
     val_masks: list[str],
-    num_classes: int = 6,
-    ignore_index: int = 5,
+    val_transform: Optional[A.Compose] = None,
+    num_classes: int = NUM_CLASSES,
+    ignore_index: int = IGNORE_INDEX,
     tile_size: int = 512,
     stride: int = 256,
     device: torch.device | str = "cuda",
-) -> Tuple[float, Dict[str, float]]:
-    """Evaluate validation images using sliding-window inference with edge padding."""
+    return_counts: bool = False,
+) -> Tuple[float, Dict[str, float]] | Tuple[float, Dict[str, float], np.ndarray, np.ndarray]:
+    """Evaluate validation images using sliding-window inference with global dataset mIoU."""
     model.eval()
-    all_class_ious: Dict[int, list[float]] = {i: [] for i in range(num_classes)}
+    total_intersections = np.zeros(num_classes, dtype=np.int64)
+    total_unions = np.zeros(num_classes, dtype=np.int64)
+
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
     for img_path, mask_path in zip(val_imgs, val_masks):
-        img_raw = cv2.imread(img_path)
-        img_raw = cv2.cvtColor(img_raw, cv2.COLOR_BGR2RGB)
-        h, w = img_raw.shape[:2]
-
-        mask_raw = cv2.imread(mask_path, cv2.IMREAD_COLOR)
-        mask_raw = cv2.cvtColor(mask_raw, cv2.COLOR_BGR2RGB)
-        rgb_values = mask_raw.astype(np.uint32)
-        pixel_colors = (
-            (rgb_values[:, :, 0] << 16)
-            | (rgb_values[:, :, 1] << 8)
-            | rgb_values[:, :, 2]
-        )
-        true_mask = np.full(mask_raw.shape[:2], fill_value=ignore_index, dtype=np.int64)
-        for color_hex, class_id in CLASS_COLORS.items():
-            color_value = int(color_hex.removeprefix("#"), 16)
-            true_mask[pixel_colors == color_value] = class_id
+        source_dataset = DubaiDataset([img_path], [mask_path])
+        img_rgb, true_mask_tensor = source_dataset[0]
+        true_mask = true_mask_tensor.numpy()
+        h, w = true_mask.shape
 
         pred_canvas = np.zeros((num_classes, h, w), dtype=np.float32)
         count_canvas = np.zeros((1, h, w), dtype=np.float32)
 
-        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-
-        y = 0
-        while y < h:
-            y_start = max(0, h - tile_size) if y + tile_size > h else y
-            x = 0
-            while x < w:
-                x_start = max(0, w - tile_size) if x + tile_size > w else x
-                tile = img_raw[y_start:y_start + tile_size, x_start:x_start + tile_size]
+        for y_start in tile_starts(h, tile_size, stride):
+            for x_start in tile_starts(w, tile_size, stride):
+                tile = img_rgb[y_start:y_start + tile_size, x_start:x_start + tile_size]
                 th, tw = tile.shape[:2]
 
                 if th < tile_size or tw < tile_size:
@@ -177,8 +292,11 @@ def evaluate_full_resolution(
                         tile, 0, pad_h, 0, pad_w, cv2.BORDER_REFLECT
                     )
 
-                tile_norm = (tile.astype(np.float32) / 255.0 - mean) / std
-                tile_tensor = torch.from_numpy(tile_norm).permute(2, 0, 1).float().unsqueeze(0).to(device)
+                if val_transform is not None:
+                    tile_tensor = val_transform(image=tile)["image"].unsqueeze(0).to(device)
+                else:
+                    tile_norm = (tile.astype(np.float32) / 255.0 - mean) / std
+                    tile_tensor = torch.from_numpy(tile_norm).permute(2, 0, 1).float().unsqueeze(0).to(device)
 
                 logits = model(tile_tensor)
                 probs = F.softmax(logits, dim=1).cpu().numpy()[0]
@@ -186,39 +304,37 @@ def evaluate_full_resolution(
                 pred_canvas[:, y_start:y_start + th, x_start:x_start + tw] += probs[:, :th, :tw]
                 count_canvas[:, y_start:y_start + th, x_start:x_start + tw] += 1.0
 
-                if x + tile_size >= w:
-                    break
-                x += stride
-            if y + tile_size >= h:
-                break
-            y += stride
-
         pred_canvas /= np.maximum(count_canvas, 1.0)
         final_pred_mask = np.argmax(pred_canvas, axis=0).astype(np.uint8)
+        valid_pixels = true_mask != ignore_index
 
         for cls in range(num_classes):
             if cls == ignore_index:
                 continue
-            pred_inds = final_pred_mask == cls
-            true_inds = true_mask == cls
-            valid_inds = true_mask != ignore_index
-            pred_inds = pred_inds & valid_inds
-            true_inds = true_inds & valid_inds
+            pred_inds = (final_pred_mask == cls) & valid_pixels
+            true_inds = (true_mask == cls) & valid_pixels
 
             intersection = np.logical_and(pred_inds, true_inds).sum()
             union = np.logical_or(pred_inds, true_inds).sum()
-            if union > 0:
-                all_class_ious[cls].append(intersection / union)
+            total_intersections[cls] += intersection
+            total_unions[cls] += union
 
     per_class_ious = {}
-    print("Per-class IoUs:")
-    for cls, ious in all_class_ious.items():
+    print("Per-class IoUs (Global Dataset):")
+    for cls in range(num_classes):
         if cls != ignore_index:
-            class_iou = float(np.mean(ious)) if ious else 0.0
-            per_class_ious[CLASS_NAMES[cls]] = class_iou
-            print(f"  {CLASS_NAMES[cls]}: {class_iou:.4f}")
+            if total_unions[cls] > 0:
+                class_iou = float(total_intersections[cls] / total_unions[cls])
+                per_class_ious[CLASS_NAMES[cls]] = class_iou
+                print(f"  {CLASS_NAMES[cls]}: {class_iou:.4f}")
+            else:
+                per_class_ious[CLASS_NAMES[cls]] = float("nan")
+                print(f"  {CLASS_NAMES[cls]}: N/A (absent)")
 
-    mean_iou = float(np.mean(list(per_class_ious.values())))
+    present_ious = [v for v in per_class_ious.values() if not np.isnan(v)]
+    mean_iou = float(np.mean(present_ious)) if present_ious else 0.0
+    if return_counts:
+        return mean_iou, per_class_ious, total_intersections, total_unions
     return mean_iou, per_class_ious
 
 
@@ -226,6 +342,7 @@ def run_kfold_training(
     dataset_base_dir: str = "../Dataset_5Fold_512",
     num_epochs: int = 30,
     batch_size: int = 6,
+    eval_every: int = 1,
     device: Optional[str] = None,
     model_name: str = "efficientnet_b0",
     pretrained: bool = True,
@@ -243,9 +360,11 @@ def run_kfold_training(
         else torch.device("cuda" if torch.cuda.is_available() else "cpu")
     )
 
-    train_transform, val_transform = get_transforms(img_size=512)
+    train_transform, val_tile_transform, val_transform = get_transforms(img_size=512)
     fold_mious = []
     canonical_model = ModelFactory.resolve_model_name(model_name)
+    cv_total_intersections = np.zeros(NUM_CLASSES, dtype=np.int64)
+    cv_total_unions = np.zeros(NUM_CLASSES, dtype=np.int64)
 
     # Initialize Criterion via CriterionFactory
     crit_kwargs = criterion_kwargs or {}
@@ -299,97 +418,173 @@ def run_kfold_training(
             val_masks = sorted(glob.glob(os.path.join(val_mask_dir, "*.png")) + glob.glob(os.path.join(val_mask_dir, "*.jpg")))
 
             train_dataset = DubaiDataset(train_imgs, train_masks, transform=train_transform)
-            train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True)
+            train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=False, pin_memory=dev.type == "cuda")
 
-            model = ModelFactory.create_model(
-                model_name=model_name,
-                num_classes=NUM_CLASSES,
-                in_channels=3,
-                pretrained=pretrained,
-            ).to(dev)
+            with tempfile.TemporaryDirectory(prefix=f"kfold_{fold_idx}_val_") as temp_val_dir:
+                val_tile_imgs, val_tile_masks, val_tile_count = create_tiles(
+                    val_imgs,
+                    val_masks,
+                    temp_val_dir,
+                    tile_size=512,
+                    stride=256,
+                )
+                val_dataset = DubaiDataset(val_tile_imgs, val_tile_masks, transform=val_tile_transform)
+                val_loader = DataLoader(
+                    val_dataset,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    num_workers=2,
+                    drop_last=False,
+                    pin_memory=dev.type == "cuda",
+                )
 
-            if fold_idx == 0:
-                model_info = ModelFactory.get_model_info(
-                    model,
+                model = ModelFactory.create_model(
                     model_name=model_name,
                     num_classes=NUM_CLASSES,
                     in_channels=3,
                     pretrained=pretrained,
+                ).to(dev)
+
+                if fold_idx == 0:
+                    model_info = ModelFactory.get_model_info(
+                        model,
+                        model_name=model_name,
+                        num_classes=NUM_CLASSES,
+                        in_channels=3,
+                        pretrained=pretrained,
+                    )
+                    logger.set_model_info(model_info)
+
+                checkpoint_path = f"../{canonical_model}_fold_{fold_idx}.pth"
+                logger.start_fold(
+                    fold_idx=fold_idx,
+                    training_samples=len(train_dataset),
+                    validation_samples=len(val_imgs),
+                    checkpoint=checkpoint_path,
                 )
-                logger.set_model_info(model_info)
 
-            checkpoint_path = f"../{canonical_model}_fold_{fold_idx}.pth"
-            logger.start_fold(
-                fold_idx=fold_idx,
-                training_samples=len(train_dataset),
-                validation_samples=len(val_imgs),
-                checkpoint=checkpoint_path,
-            )
-
-            criterion = CriterionFactory.create_criterion(
-                criterion_name=loss_type,
-                ignore_index=IGNORE_INDEX,
-                **crit_kwargs,
-            )
-            optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-            scheduler = optim.lr_scheduler.CosineAnnealingLR(
-                optimizer,
-                T_max=num_epochs,
-                eta_min=1e-4 if loss_type == "fuzzy" else 1e-6,
-            )
-
-            for epoch in range(num_epochs):
-                model.train()
-                running_loss = 0.0
-                current_lr = optimizer.param_groups[0]["lr"]
-
-                for imgs, masks in train_loader:
-                    imgs, masks = imgs.to(dev), masks.to(dev)
-
-                    optimizer.zero_grad()
-                    outputs = model(imgs)
-                    loss = criterion(outputs, masks)
-                    loss.backward()
-                    optimizer.step()
-
-                    running_loss += loss.item()
-
-                epoch_loss = running_loss / len(train_loader)
-                scheduler.step()
-                print(
-                    f"Epoch [{epoch + 1}/{num_epochs}] | "
-                    f"Train Loss: {epoch_loss:.4f} | "
-                    f"LR: {current_lr:.2e}"
+                criterion = CriterionFactory.create_criterion(
+                    criterion_name=loss_type,
+                    ignore_index=IGNORE_INDEX,
+                    **crit_kwargs,
                 )
-                logger.log_fold_epoch(fold_idx, epoch + 1, epoch_loss, current_lr)
+                optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+                scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                    optimizer,
+                    T_max=num_epochs,
+                    eta_min=1e-4 if loss_type == "fuzzy" else 1e-6,
+                )
 
-            # Evaluate fold on full-resolution validation images
-            print(f"Evaluating fold {fold_idx} on full-resolution validation images...")
-            fold_miou, per_class_ious = evaluate_full_resolution(
-                model,
-                val_imgs,
-                val_masks,
-                num_classes=NUM_CLASSES,
-                ignore_index=IGNORE_INDEX,
-                device=dev,
-            )
-            print(f"--> Fold {fold_idx} Full-Res mIoU: {fold_miou:.4f}")
-            logger.log_fold_validation(fold_idx, fold_miou, per_class_ious)
+                best_fold_score = -1.0
+                best_fold_state = None
 
-            fold_mious.append(fold_miou)
-            torch.save(model.state_dict(), checkpoint_path)
-            if hasattr(model, "reparameterize"):
-                reparam_path = checkpoint_path.replace(".pth", "_reparam.pth")
-                reparam_model = ModelFactory.prepare_for_inference_or_export(model)
-                torch.save(reparam_model.state_dict(), reparam_path)
-                print(f"Saved reparameterized fold checkpoint to {reparam_path}")
+                for epoch in range(num_epochs):
+                    model.train()
+                    running_loss = 0.0
+                    current_lr = optimizer.param_groups[0]["lr"]
+
+                    for imgs, masks in train_loader:
+                        imgs, masks = imgs.to(dev), masks.to(dev)
+
+                        optimizer.zero_grad()
+                        outputs = model(imgs)
+                        loss = criterion(outputs, masks)
+                        loss.backward()
+                        optimizer.step()
+
+                        running_loss += loss.item() * imgs.size(0)
+
+                    epoch_loss = running_loss / len(train_dataset)
+                    scheduler.step()
+
+                    # Validate fold on validation tiles for loss
+                    val_loss, _, _ = validate_tiles(
+                        model,
+                        val_loader,
+                        criterion,
+                        dev,
+                        num_classes=NUM_CLASSES,
+                        ignore_index=IGNORE_INDEX,
+                    )
+
+                    val_fullres_miou = 0.0
+                    log_msg = (
+                        f"Epoch [{epoch + 1}/{num_epochs}] | "
+                        f"Train Loss: {epoch_loss:.4f} | "
+                        f"Val Loss: {val_loss:.4f}"
+                    )
+
+                    if (epoch + 1) % eval_every == 0:
+                        val_fullres_miou, _ = evaluate_full_resolution(
+                            model,
+                            val_imgs,
+                            val_masks,
+                            val_transform=val_transform,
+                            num_classes=NUM_CLASSES,
+                            ignore_index=IGNORE_INDEX,
+                            device=dev,
+                        )
+                        log_msg += f" | Val Full-Res Global mIoU: {val_fullres_miou:.4f}"
+
+                        if val_fullres_miou > best_fold_score:
+                            best_fold_score = val_fullres_miou
+                            best_fold_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+
+                    log_msg += f" | LR: {current_lr:.2e}"
+                    print(log_msg)
+                    logger.log_fold_epoch(
+                        fold_idx,
+                        epoch + 1,
+                        epoch_loss,
+                        current_lr,
+                        val_loss=val_loss,
+                        val_miou=val_fullres_miou if (epoch + 1) % eval_every == 0 else None,
+                    )
+
+                if best_fold_state is not None:
+                    model.load_state_dict({k: v.to(dev) for k, v in best_fold_state.items()})
+                    print(f"Loaded best fold checkpoint (val mIoU: {best_fold_score:.4f})")
+
+                # Evaluate fold on full-resolution validation images using global dataset mIoU
+                print(f"Evaluating fold {fold_idx} on full-resolution validation images (global dataset mIoU)...")
+                fold_miou, per_class_ious, fold_intersections, fold_unions = evaluate_full_resolution(
+                    model,
+                    val_imgs,
+                    val_masks,
+                    val_transform=val_transform,
+                    num_classes=NUM_CLASSES,
+                    ignore_index=IGNORE_INDEX,
+                    device=dev,
+                    return_counts=True,
+                )
+                print(f"--> Fold {fold_idx} Full-Res Global mIoU: {fold_miou:.4f}")
+                logger.log_fold_validation(fold_idx, fold_miou, per_class_ious)
+
+                cv_total_intersections += fold_intersections
+                cv_total_unions += fold_unions
+                fold_mious.append(fold_miou)
+
+                torch.save(model.state_dict(), checkpoint_path)
+                if hasattr(model, "reparameterize"):
+                    reparam_path = checkpoint_path.replace(".pth", "_reparam.pth")
+                    reparam_model = ModelFactory.prepare_for_inference_or_export(model)
+                    torch.save(reparam_model.state_dict(), reparam_path)
+                    print(f"Saved reparameterized fold checkpoint to {reparam_path}")
 
         avg_miou = float(np.mean(fold_mious))
+        cv_global_class_ious = {
+            CLASS_NAMES[c]: float(cv_total_intersections[c] / cv_total_unions[c])
+            if cv_total_unions[c] > 0 else 0.0
+            for c in range(NUM_CLASSES) if c != IGNORE_INDEX
+        }
+        cv_global_miou = float(np.mean(list(cv_global_class_ious.values())))
+
         print(f"\n========================================")
         print(f"Cross-Validation Complete!")
-        print(f"Average 5-Fold mIoU: {avg_miou:.4f}")
+        print(f"Average 5-Fold mIoU (fold-macro): {avg_miou:.4f}")
+        print(f"Overall 5-Fold Global Dataset mIoU: {cv_global_miou:.4f}")
         print(f"========================================")
-        logger.complete(average_mean_iou=avg_miou)
+        logger.complete(average_mean_iou=avg_miou, global_mean_iou=cv_global_miou)
         return avg_miou, logger.path
 
     except Exception as error:
@@ -417,6 +612,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--epochs", type=int, default=30, dest="num_epochs", help="Number of training epochs per fold")
     parser.add_argument("--batch-size", type=int, default=6, help="Training batch size")
+    parser.add_argument("--eval-every", type=int, default=1, help="Run full-resolution validation every N epochs")
     parser.add_argument("--device", default=None, help="Device to train on ('cuda' or 'cpu')")
     parser.add_argument("--dataset-dir", default="../Dataset_5Fold_512", dest="dataset_base_dir", help="Base directory of 5-fold dataset")
     parser.add_argument("--no-pretrained", action="store_true", help="Do not load ImageNet pretrained weights")
@@ -429,6 +625,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--lr", type=float, default=1e-3, help="Optimizer initial learning rate")
     parser.add_argument("--weight-decay", type=float, default=1e-4, help="AdamW weight decay")
+    parser.add_argument("--log-dir", default="../training_logs", help="Directory for JSON experiment logs")
 
     args = parser.parse_args()
 

@@ -52,10 +52,13 @@ class TrainingLogger:
             self.data["folds"] = []
         else:
             self.data["training_samples"] = 0
+            self.data["validation_samples"] = 0
             self.data["test_samples"] = 0
             self.data["training_tiles"] = 0
+            self.data["validation_tiles"] = 0
             self.data["checkpoint"] = ""
             self.data["epochs"] = []
+            self.data["validation"] = None
             self.data["test"] = None
 
         self._save()
@@ -102,11 +105,15 @@ class TrainingLogger:
         test_samples: int,
         training_tiles: int = 0,
         checkpoint: Optional[str] = None,
+        validation_samples: int = 0,
+        validation_tiles: int = 0,
     ) -> None:
         """Set sample counts and output checkpoint path for single tiled run."""
         self.data["training_samples"] = training_samples
+        self.data["validation_samples"] = validation_samples
         self.data["test_samples"] = test_samples
         self.data["training_tiles"] = training_tiles
+        self.data["validation_tiles"] = validation_tiles
         if checkpoint:
             self.data["checkpoint"] = checkpoint
         self._save()
@@ -114,6 +121,11 @@ class TrainingLogger:
     def set_training_tiles(self, training_tiles: int) -> None:
         """Update count of extracted training tiles."""
         self.data["training_tiles"] = training_tiles
+        self._save()
+
+    def set_validation_tiles(self, validation_tiles: int) -> None:
+        """Update count of extracted validation tiles."""
+        self.data["validation_tiles"] = validation_tiles
         self._save()
 
     def log_epoch(
@@ -133,6 +145,19 @@ class TrainingLogger:
             record[k] = float(v) if isinstance(v, (int, float)) else v
 
         self.data["epochs"].append(record)
+        self._save()
+
+    def log_validation_results(
+        self,
+        mean_iou: float,
+        per_class_iou: Dict[str, float],
+    ) -> None:
+        """Record validation evaluation metrics (e.g. full-resolution global mIoU)."""
+        self.data["validation"] = {
+            "mean_iou": float(mean_iou),
+            "per_class_iou": {str(k): float(v) for k, v in per_class_iou.items()},
+        }
+        self.data["val_mean_iou"] = float(mean_iou)
         self._save()
 
     def log_test_results(
@@ -220,6 +245,8 @@ class TrainingLogger:
         self,
         average_mean_iou: Optional[float] = None,
         test_mean_iou: Optional[float] = None,
+        val_mean_iou: Optional[float] = None,
+        global_mean_iou: Optional[float] = None,
     ) -> None:
         """Mark the training run as successfully completed."""
         self.data["status"] = "completed"
@@ -228,6 +255,10 @@ class TrainingLogger:
             self.data["average_mean_iou"] = float(average_mean_iou)
         if test_mean_iou is not None:
             self.data["test_mean_iou"] = float(test_mean_iou)
+        if val_mean_iou is not None:
+            self.data["val_mean_iou"] = float(val_mean_iou)
+        if global_mean_iou is not None:
+            self.data["global_mean_iou"] = float(global_mean_iou)
         self._save()
 
     def fail(self, error: Union[str, Exception]) -> None:
