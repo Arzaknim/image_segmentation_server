@@ -5,10 +5,14 @@
 #include <vector>
 #include <chrono>
 #include <array>
+#include <cmath>
+#include <optional>
+#include <limits>
 
 namespace segmentation {
 
 constexpr size_t NUM_CLASSES = 6;
+constexpr uint8_t IGNORE_INDEX = 5;
 constexpr size_t DEFAULT_TILE_SIZE = 512;
 constexpr size_t DEFAULT_TILE_STRIDE = 256;
 
@@ -36,6 +40,13 @@ const std::array<std::array<uint8_t, 3>, NUM_CLASSES> CLASS_COLORS_RGB = {{
 struct TilingConfig {
     size_t tile_size = DEFAULT_TILE_SIZE;
     size_t stride = DEFAULT_TILE_STRIDE;
+};
+
+struct ClassIouResult {
+    std::array<double, NUM_CLASSES - 1> per_class_iou{}; // std::nan if union == 0
+    double mean_iou = 0.0;
+    std::array<uint64_t, NUM_CLASSES - 1> intersections{};
+    std::array<uint64_t, NUM_CLASSES - 1> unions{};
 };
 
 struct InferenceTiming {

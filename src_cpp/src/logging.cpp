@@ -68,6 +68,28 @@ std::pair<std::string, std::string> get_utc_timestamp() {
     return {iso_oss.str(), slug_oss.str()};
 }
 
+std::string format_iou_snippet(const IouMetricsLog& iou, const std::string& indent) {
+    std::ostringstream oss;
+    oss << indent << "\"iou\": {\n"
+        << indent << "  \"mean_iou\": " << std::fixed << std::setprecision(4) << iou.mean_iou << ",\n"
+        << indent << "  \"per_class\": {\n";
+    for (size_t c = 0; c < NUM_CLASSES - 1; ++c) {
+        oss << indent << "    \"" << escape_json(CLASS_NAMES[c]) << "\": ";
+        if (iou.per_class_iou[c].has_value() && !std::isnan(*iou.per_class_iou[c])) {
+            oss << std::fixed << std::setprecision(4) << *iou.per_class_iou[c];
+        } else {
+            oss << "null";
+        }
+        if (c + 1 < NUM_CLASSES - 1) {
+            oss << ",";
+        }
+        oss << "\n";
+    }
+    oss << indent << "  }\n"
+        << indent << "}";
+    return oss.str();
+}
+
 std::string SingleRunInferenceLog::to_json_string() const {
     std::ostringstream oss;
     oss << "{\n"
@@ -100,8 +122,11 @@ std::string SingleRunInferenceLog::to_json_string() const {
             << "        \"tile_count\": " << img.tile_count << ",\n"
             << "        \"avg_tile_forward_ms\": " << std::fixed << std::setprecision(2) << img.avg_tile_forward_ms << ",\n"
             << "        \"pre_post_processing_seconds\": " << std::fixed << std::setprecision(4) << img.pre_post_processing_secs << "\n"
-            << "      }\n"
-            << "    }";
+            << "      }";
+        if (img.iou.has_value()) {
+            oss << ",\n" << format_iou_snippet(*img.iou, "      ");
+        }
+        oss << "\n    }";
     }
 
     oss << "\n  ],\n"
@@ -113,8 +138,11 @@ std::string SingleRunInferenceLog::to_json_string() const {
         << "    \"pure_onnx_forward_seconds\": " << std::fixed << std::setprecision(4) << summary.pure_onnx_forward_secs << ",\n"
         << "    \"avg_tile_forward_ms\": " << std::fixed << std::setprecision(2) << summary.avg_tile_forward_ms << ",\n"
         << "    \"total_elapsed_time_seconds\": " << std::fixed << std::setprecision(4) << summary.total_elapsed_secs << ",\n"
-        << "    \"results_saved_to\": \"" << escape_json(summary.results_saved_to) << "\"\n"
-        << "  }\n"
+        << "    \"results_saved_to\": \"" << escape_json(summary.results_saved_to) << "\"";
+    if (summary.iou.has_value()) {
+        oss << ",\n" << format_iou_snippet(*summary.iou, "    ");
+    }
+    oss << "\n  }\n"
         << "}\n";
 
     return oss.str();

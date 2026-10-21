@@ -78,6 +78,41 @@ fn escape_json(s: &str) -> String {
 }
 
 #[derive(Debug, Clone)]
+pub struct IouMetricsLog {
+    pub mean_iou: f64,
+    pub per_class_iou: [Option<f64>; 5], // Water, Land, Road, Building, Vegetation
+}
+
+impl IouMetricsLog {
+    pub fn to_json_snippet(&self, indent: &str) -> String {
+        let class_names = [
+            "Water",
+            "Land (unpaved area)",
+            "Road",
+            "Building",
+            "Vegetation",
+        ];
+        let mut s = format!(
+            "{indent}\"iou\": {{\n{indent}  \"mean_iou\": {:.4},\n{indent}  \"per_class\": {{\n",
+            self.mean_iou
+        );
+        for (i, name) in class_names.iter().enumerate() {
+            let comma = if i + 1 < class_names.len() { "," } else { "" };
+            match self.per_class_iou[i] {
+                Some(val) if !val.is_nan() => {
+                    s.push_str(&format!("{indent}    \"{}\": {:.4}{comma}\n", name, val));
+                }
+                _ => {
+                    s.push_str(&format!("{indent}    \"{}\": null{comma}\n", name));
+                }
+            }
+        }
+        s.push_str(&format!("{indent}  }}\n{indent}}}"));
+        s
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ImageInferenceLogEntry {
     pub image_filename: String,
     pub image_path: String,
@@ -89,6 +124,7 @@ pub struct ImageInferenceLogEntry {
     pub tile_count: usize,
     pub avg_tile_forward_ms: f64,
     pub pre_post_processing_secs: f64,
+    pub iou: Option<IouMetricsLog>,
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +137,7 @@ pub struct RunSummaryMetrics {
     pub avg_tile_forward_ms: f64,
     pub total_elapsed_secs: f64,
     pub results_saved_to: String,
+    pub iou: Option<IouMetricsLog>,
 }
 
 #[derive(Debug, Clone)]
@@ -122,8 +159,12 @@ impl SingleRunInferenceLog {
             if i > 0 {
                 images_json.push_str(",\n");
             }
+            let iou_str = match &img.iou {
+                Some(iou) => format!(",\n{}", iou.to_json_snippet("      ")),
+                None => String::new(),
+            };
             images_json.push_str(&format!(
-                "    {{\n      \"image_filename\": \"{}\",\n      \"image_path\": \"{}\",\n      \"output_mask_path\": \"{}\",\n      \"dimensions\": {{\n        \"width\": {},\n        \"height\": {}\n      }},\n      \"timing\": {{\n        \"total_inference_time_seconds\": {:.4},\n        \"total_inference_time_ms\": {:.1},\n        \"pure_onnx_forward_seconds\": {:.4},\n        \"tile_count\": {},\n        \"avg_tile_forward_ms\": {:.2},\n        \"pre_post_processing_seconds\": {:.4}\n      }}\n    }}",
+                "    {{\n      \"image_filename\": \"{}\",\n      \"image_path\": \"{}\",\n      \"output_mask_path\": \"{}\",\n      \"dimensions\": {{\n        \"width\": {},\n        \"height\": {}\n      }},\n      \"timing\": {{\n        \"total_inference_time_seconds\": {:.4},\n        \"total_inference_time_ms\": {:.1},\n        \"pure_onnx_forward_seconds\": {:.4},\n        \"tile_count\": {},\n        \"avg_tile_forward_ms\": {:.2},\n        \"pre_post_processing_seconds\": {:.4}\n      }}{}\n    }}",
                 escape_json(&img.image_filename),
                 escape_json(&img.image_path),
                 escape_json(&img.output_mask_path),
@@ -134,12 +175,18 @@ impl SingleRunInferenceLog {
                 img.pure_onnx_forward_secs,
                 img.tile_count,
                 img.avg_tile_forward_ms,
-                img.pre_post_processing_secs
+                img.pre_post_processing_secs,
+                iou_str
             ));
         }
 
+        let summary_iou_str = match &self.summary.iou {
+            Some(iou) => format!(",\n{}", iou.to_json_snippet("    ")),
+            None => String::new(),
+        };
+
         format!(
-            "{{\n  \"timestamp\": \"{}\",\n  \"engine\": \"{}\",\n  \"model_path\": \"{}\",\n  \"input_path\": \"{}\",\n  \"output_path\": \"{}\",\n  \"tiling\": {{\n    \"tile_size\": {},\n    \"stride\": {}\n  }},\n  \"images\": [\n{}\n  ],\n  \"summary\": {{\n    \"images_processed\": {},\n    \"total_tiles_computed\": {},\n    \"total_inference_time_seconds\": {:.4},\n    \"avg_inference_time_per_image_seconds\": {:.4},\n    \"pure_onnx_forward_seconds\": {:.4},\n    \"avg_tile_forward_ms\": {:.2},\n    \"total_elapsed_time_seconds\": {:.4},\n    \"results_saved_to\": \"{}\"\n  }}\n}}\n",
+            "{{\n  \"timestamp\": \"{}\",\n  \"engine\": \"{}\",\n  \"model_path\": \"{}\",\n  \"input_path\": \"{}\",\n  \"output_path\": \"{}\",\n  \"tiling\": {{\n    \"tile_size\": {},\n    \"stride\": {}\n  }},\n  \"images\": [\n{}\n  ],\n  \"summary\": {{\n    \"images_processed\": {},\n    \"total_tiles_computed\": {},\n    \"total_inference_time_seconds\": {:.4},\n    \"avg_inference_time_per_image_seconds\": {:.4},\n    \"pure_onnx_forward_secs\": {:.4},\n    \"avg_tile_forward_ms\": {:.2},\n    \"total_elapsed_time_seconds\": {:.4},\n    \"results_saved_to\": \"{}\"{}\n  }}\n}}\n",
             self.timestamp,
             self.engine,
             escape_json(&self.model_path),
@@ -155,7 +202,8 @@ impl SingleRunInferenceLog {
             self.summary.pure_onnx_forward_secs,
             self.summary.avg_tile_forward_ms,
             self.summary.total_elapsed_secs,
-            escape_json(&self.summary.results_saved_to)
+            escape_json(&self.summary.results_saved_to),
+            summary_iou_str
         )
     }
 }

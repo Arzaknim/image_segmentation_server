@@ -209,6 +209,17 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="metric-row"><span>Pre/Post Processing:</span><span>${t.pre_post_processing_ms.toFixed(1)} ms</span></div>
       <div class="metric-row"><span>Image Resolution:</span><span>${data.width} &times; ${data.height} px</span></div>
       ${data.log_file ? `<div class="metric-row"><span>JSON Log:</span><span style="font-size:0.75rem">${data.log_file}</span></div>` : ''}
+      ${data.iou ? `
+        <div style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,0.15)">
+          <div class="metric-row" style="font-weight:bold; color:#4ade80"><span>Mean IoU (mIoU):</span><span>${data.iou.mean_iou.toFixed(4)}</span></div>
+          ${Object.entries(data.iou.per_class).map(([cls, val]) => `
+            <div class="metric-row" style="font-size:0.8rem; padding-left: 8px">
+              <span>${cls}:</span>
+              <span>${val !== null && val !== undefined ? Number(val).toFixed(4) : 'N/A (absent)'}</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
     `;
 
     classLegendList.innerHTML = data.classes.map(c => `

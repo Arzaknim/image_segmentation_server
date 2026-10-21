@@ -45,6 +45,19 @@ std::vector<uint8_t> load_image_rgb(const std::string& filepath, int& width, int
     return rgb_bytes;
 }
 
+std::vector<uint8_t> load_image_raw(const std::string& filepath, int& width, int& height, int& channels) {
+    int channels_in_file = 0;
+    unsigned char* data = stbi_load(filepath.c_str(), &width, &height, &channels_in_file, 0);
+    if (!data) {
+        throw std::runtime_error("Failed to load image at '" + filepath + "': " + stbi_failure_reason());
+    }
+    channels = channels_in_file;
+    size_t total_bytes = static_cast<size_t>(width) * static_cast<size_t>(height) * static_cast<size_t>(channels);
+    std::vector<uint8_t> raw_bytes(data, data + total_bytes);
+    stbi_image_free(data);
+    return raw_bytes;
+}
+
 void save_png(const std::string& filepath, int width, int height, const uint8_t* rgb_data) {
     int stride_in_bytes = width * 3;
     int success = stbi_write_png(filepath.c_str(), width, height, 3, rgb_data, stride_in_bytes);
@@ -164,6 +177,100 @@ std::vector<uint8_t> render_class_mask_to_rgb(const std::vector<uint8_t>& class_
         rgb.push_back(color[2]);
     }
     return rgb;
+}
+
+std::vector<uint8_t> decode_ground_truth_mask(
+    const uint8_t* raw_bytes,
+    size_t width,
+    size_t height,
+    int channels
+) {
+    size_t pixel_count = width * height;
+    std::vector<uint8_t> mask(pixel_count, IGNORE_INDEX);
+
+    if (channels == 1) {
+        for (size_t i = 0; i < pixel_count; ++i) {
+            uint8_t val = raw_bytes[i];
+            mask[i] = (val < NUM_CLASSES) ? val : IGNORE_INDEX;
+        }
+        return mask;
+    }
+
+    if (channels >= 3) {
+        for (size_t i = 0; i < pixel_count; ++i) {
+            uint8_t r = raw_bytes[i * channels];
+            uint8_t g = raw_bytes[i * channels + 1];
+            uint8_t b = raw_bytes[i * channels + 2];
+
+            if (r == 0 && g == 0 && b == 0) {
+                mask[i] = IGNORE_INDEX;
+                continue;
+            }
+
+            bool matched = false;
+            for (size_t c = 0; c < NUM_CLASSES; ++c) {
+                if (r == CLASS_COLORS_RGB[c][0] &&
+                    g == CLASS_COLORS_RGB[c][1] &&
+                    b == CLASS_COLORS_RGB[c][2]) {
+                    mask[i] = static_cast<uint8_t>(c);
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                mask[i] = IGNORE_INDEX;
+            }
+        }
+        return mask;
+    }
+
+    throw std::runtime_error("Unsupported mask channel count: " + std::to_string(channels));
+}
+
+ClassIouResult calculate_mask_iou(
+    const uint8_t* prediction,
+    const uint8_t* target,
+    size_t num_pixels
+) {
+    constexpr size_t ACTIVE_CLASSES = NUM_CLASSES - 1;
+    ClassIouResult result;
+    for (size_t c = 0; c < ACTIVE_CLASSES; ++c) {
+        result.per_class_iou[c] = std::numeric_limits<double>::quiet_NaN();
+        result.intersections[c] = 0;
+        result.unions[c] = 0;
+    }
+
+    for (size_t i = 0; i < num_pixels; ++i) {
+        uint8_t t = target[i];
+        if (t == IGNORE_INDEX) {
+            continue;
+        }
+        uint8_t p = prediction[i];
+        for (size_t c = 0; c < ACTIVE_CLASSES; ++c) {
+            bool in_p = (p == static_cast<uint8_t>(c));
+            bool in_t = (t == static_cast<uint8_t>(c));
+            if (in_p && in_t) {
+                result.intersections[c]++;
+            }
+            if (in_p || in_t) {
+                result.unions[c]++;
+            }
+        }
+    }
+
+    double sum_iou = 0.0;
+    size_t count_iou = 0;
+    for (size_t c = 0; c < ACTIVE_CLASSES; ++c) {
+        if (result.unions[c] > 0) {
+            double iou = static_cast<double>(result.intersections[c]) / static_cast<double>(result.unions[c]);
+            result.per_class_iou[c] = iou;
+            sum_iou += iou;
+            count_iou++;
+        }
+    }
+
+    result.mean_iou = (count_iou > 0) ? (sum_iou / static_cast<double>(count_iou)) : 0.0;
+    return result;
 }
 
 } // namespace segmentation

@@ -19,12 +19,12 @@ use serde::Serialize;
 use tower_http::cors::{Any, CorsLayer};
 
 use dubai_segmentation_inference::inference::{
-    predict_full_resolution_with_timing, render_class_mask_to_rgb, TilingConfig, CLASS_COLORS_RGB,
-    CLASS_NAMES, NUM_CLASSES,
+    calculate_mask_iou, decode_ground_truth_mask, predict_full_resolution_with_timing,
+    render_class_mask_to_rgb, TilingConfig, CLASS_COLORS_RGB, CLASS_NAMES, NUM_CLASSES,
 };
 use dubai_segmentation_inference::logging::{
-    get_utc_timestamp, resolve_log_dir, save_run_log, ImageInferenceLogEntry, RunSummaryMetrics,
-    SingleRunInferenceLog,
+    get_utc_timestamp, resolve_log_dir, save_run_log, ImageInferenceLogEntry, IouMetricsLog,
+    RunSummaryMetrics, SingleRunInferenceLog,
 };
 use dubai_segmentation_inference::onnx_model::OnnxModel;
 
@@ -64,6 +64,12 @@ struct TimingMetrics {
     pre_post_processing_ms: f64,
 }
 
+#[derive(Serialize, Clone)]
+struct IouResponse {
+    mean_iou: f64,
+    per_class: std::collections::BTreeMap<String, Option<f64>>,
+}
+
 #[derive(Serialize)]
 struct SegmentResponse {
     success: bool,
@@ -73,6 +79,7 @@ struct SegmentResponse {
     mask_png_base64: String,
     timing: TimingMetrics,
     classes: Vec<ClassMetric>,
+    iou: Option<IouResponse>,
     log_file: Option<String>,
 }
 
@@ -228,6 +235,7 @@ async fn handle_segmentation(
     mut multipart: Multipart,
 ) -> Result<Json<SegmentResponse>, (StatusCode, Json<ErrorResponse>)> {
     let mut file_bytes: Option<Vec<u8>> = None;
+    let mut mask_file_bytes: Option<Vec<u8>> = None;
     let mut filename = "uploaded_image.jpg".to_string();
     let mut tile_size = 512usize;
     let mut stride = 256usize;
@@ -246,6 +254,19 @@ async fn handle_segmentation(
                         Json(ErrorResponse {
                             success: false,
                             error: format!("Failed to read image stream: {err}"),
+                        }),
+                    ))
+                }
+            }
+        } else if name == "mask" || name == "ground_truth" {
+            match field.bytes().await {
+                Ok(bytes) => mask_file_bytes = Some(bytes.to_vec()),
+                Err(err) => {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(ErrorResponse {
+                            success: false,
+                            error: format!("Failed to read mask stream: {err}"),
                         }),
                     ))
                 }
@@ -355,6 +376,53 @@ async fn handle_segmentation(
             .saturating_sub(timing.model_forward_time)
             .as_secs_f64();
 
+        // Evaluate IoU if ground truth mask was uploaded
+        let mut iou_metrics_log = None;
+        let mut iou_response = None;
+        if let Some(mask_bytes) = mask_file_bytes {
+            let gt_img = image::load_from_memory(&mask_bytes)
+                .map_err(|e| format!("Failed to decode ground-truth mask image: {e}"))?;
+            let (gw, gh) = gt_img.dimensions();
+            if gw != width || gh != height {
+                return Err(format!(
+                    "Ground-truth mask dimensions ({}x{}) do not match image dimensions ({}x{})",
+                    gw, gh, width, height
+                ));
+            }
+            let (gt_raw, channels) = match gt_img {
+                image::DynamicImage::ImageLuma8(luma) => (luma.into_raw(), 1),
+                image::DynamicImage::ImageLumaA8(luma_a) => {
+                    let luma = image::DynamicImage::ImageLumaA8(luma_a).into_luma8();
+                    (luma.into_raw(), 1)
+                }
+                image::DynamicImage::ImageRgb8(rgb) => (rgb.into_raw(), 3),
+                image::DynamicImage::ImageRgba8(rgba) => (rgba.into_raw(), 4),
+                other => (other.into_rgb8().into_raw(), 3),
+            };
+            let gt_decoded = decode_ground_truth_mask(&gt_raw, width as usize, height as usize, channels)?;
+            let iou_res = calculate_mask_iou(&mask, &gt_decoded)?;
+
+            let mut per_class = [None; NUM_CLASSES - 1];
+            let mut per_class_map = std::collections::BTreeMap::new();
+            for c in 0..NUM_CLASSES - 1 {
+                if iou_res.unions[c] > 0 {
+                    let val = iou_res.per_class_iou[c];
+                    per_class[c] = Some(val);
+                    per_class_map.insert(CLASS_NAMES[c].to_string(), Some(val));
+                } else {
+                    per_class_map.insert(CLASS_NAMES[c].to_string(), None);
+                }
+            }
+            iou_response = Some(IouResponse {
+                mean_iou: iou_res.mean_iou,
+                per_class: per_class_map,
+            });
+            iou_metrics_log = Some(IouMetricsLog {
+                mean_iou: iou_res.mean_iou,
+                per_class_iou: per_class,
+            });
+        }
+
         // Save JSON run log
         let (iso_time, time_slug) = get_utc_timestamp();
         let image_entry = ImageInferenceLogEntry {
@@ -368,6 +436,7 @@ async fn handle_segmentation(
             tile_count: timing.tile_count,
             avg_tile_forward_ms: timing.avg_tile_forward_ms(),
             pre_post_processing_secs: pre_post_secs,
+            iou: iou_metrics_log.clone(),
         };
 
         let summary = RunSummaryMetrics {
@@ -379,6 +448,7 @@ async fn handle_segmentation(
             avg_tile_forward_ms: timing.avg_tile_forward_ms(),
             total_elapsed_secs: total_secs,
             results_saved_to: "web_client".into(),
+            iou: iou_metrics_log,
         };
 
         let run_log = SingleRunInferenceLog {
@@ -404,7 +474,7 @@ async fn handle_segmentation(
             pre_post_processing_ms: pre_post_secs * 1000.0,
         };
 
-        Ok::<_, String>((width, height, mask_png_base64, timing_metrics, classes, log_file_str))
+        Ok::<_, String>((width, height, mask_png_base64, timing_metrics, classes, iou_response, log_file_str))
     })
     .await
     .map_err(|e| {
@@ -426,7 +496,7 @@ async fn handle_segmentation(
         )
     })?;
 
-    let (width, height, mask_png_base64, timing, classes, log_file) = inference_result;
+    let (width, height, mask_png_base64, timing, classes, iou, log_file) = inference_result;
 
     Ok(Json(SegmentResponse {
         success: true,
@@ -436,6 +506,7 @@ async fn handle_segmentation(
         mask_png_base64,
         timing,
         classes,
+        iou,
         log_file,
     }))
 }

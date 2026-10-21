@@ -4,6 +4,7 @@ use crate::model::EfficientNetB0Unet;
 use crate::tensor::Tensor3d;
 
 pub const NUM_CLASSES: usize = 6;
+pub const IGNORE_INDEX: u8 = 5;
 pub const DEFAULT_TILE_SIZE: usize = 512;
 pub const DEFAULT_TILE_STRIDE: usize = 256;
 
@@ -202,6 +203,134 @@ pub fn render_class_mask_to_rgb(class_mask: &[u8]) -> Vec<u8> {
         rgb.extend_from_slice(&color);
     }
     rgb
+}
+
+#[derive(Debug, Clone)]
+pub struct ClassIouResult {
+    pub per_class_iou: [f64; NUM_CLASSES - 1], // NaN if absent (union == 0)
+    pub mean_iou: f64,
+    pub intersections: [u64; NUM_CLASSES - 1],
+    pub unions: [u64; NUM_CLASSES - 1],
+}
+
+pub fn decode_ground_truth_mask(
+    raw_bytes: &[u8],
+    width: usize,
+    height: usize,
+    channels: usize,
+) -> Result<Vec<u8>, String> {
+    let pixel_count = width * height;
+    if channels == 1 {
+        if raw_bytes.len() < pixel_count {
+            return Err(format!(
+                "Mask buffer size {} is smaller than expected pixel count {}",
+                raw_bytes.len(),
+                pixel_count
+            ));
+        }
+        let mut mask = vec![0u8; pixel_count];
+        for i in 0..pixel_count {
+            let val = raw_bytes[i];
+            mask[i] = if (val as usize) < NUM_CLASSES { val } else { IGNORE_INDEX };
+        }
+        return Ok(mask);
+    }
+
+    if channels >= 3 {
+        let expected_len = pixel_count * channels;
+        if raw_bytes.len() < expected_len {
+            return Err(format!(
+                "Mask RGB buffer size {} is smaller than expected {}",
+                raw_bytes.len(),
+                expected_len
+            ));
+        }
+        let mut mask = vec![IGNORE_INDEX; pixel_count];
+        for i in 0..pixel_count {
+            let r = raw_bytes[i * channels];
+            let g = raw_bytes[i * channels + 1];
+            let b = raw_bytes[i * channels + 2];
+
+            if r == 0 && g == 0 && b == 0 {
+                mask[i] = IGNORE_INDEX;
+                continue;
+            }
+
+            let mut matched = false;
+            for (class_id, color) in CLASS_COLORS_RGB.iter().enumerate() {
+                if r == color[0] && g == color[1] && b == color[2] {
+                    mask[i] = class_id as u8;
+                    matched = true;
+                    break;
+                }
+            }
+            if !matched {
+                mask[i] = IGNORE_INDEX;
+            }
+        }
+        return Ok(mask);
+    }
+
+    Err(format!("Unsupported mask channel count: {}", channels))
+}
+
+pub fn calculate_mask_iou(prediction: &[u8], target: &[u8]) -> Result<ClassIouResult, String> {
+    if prediction.len() != target.len() {
+        return Err(format!(
+            "Prediction length {} does not match target length {}",
+            prediction.len(),
+            target.len()
+        ));
+    }
+
+    let active_classes = NUM_CLASSES - 1;
+    let mut intersections = [0u64; NUM_CLASSES - 1];
+    let mut unions = [0u64; NUM_CLASSES - 1];
+
+    for i in 0..prediction.len() {
+        let t = target[i];
+        if t == IGNORE_INDEX {
+            continue;
+        }
+        let p = prediction[i];
+        for c in 0..active_classes {
+            let class_u8 = c as u8;
+            let in_p = p == class_u8;
+            let in_t = t == class_u8;
+            if in_p && in_t {
+                intersections[c] += 1;
+            }
+            if in_p || in_t {
+                unions[c] += 1;
+            }
+        }
+    }
+
+    let mut per_class_iou = [f64::NAN; NUM_CLASSES - 1];
+    let mut sum_iou = 0.0;
+    let mut count_iou = 0usize;
+
+    for c in 0..active_classes {
+        if unions[c] > 0 {
+            let iou = intersections[c] as f64 / unions[c] as f64;
+            per_class_iou[c] = iou;
+            sum_iou += iou;
+            count_iou += 1;
+        }
+    }
+
+    let mean_iou = if count_iou > 0 {
+        sum_iou / count_iou as f64
+    } else {
+        0.0
+    };
+
+    Ok(ClassIouResult {
+        per_class_iou,
+        mean_iou,
+        intersections,
+        unions,
+    })
 }
 
 fn pad_tile(tile: &Tensor3d, target_h: usize, target_w: usize) -> Tensor3d {

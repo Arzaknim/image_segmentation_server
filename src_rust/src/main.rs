@@ -5,12 +5,12 @@ use std::process;
 use std::time::Instant;
 
 use dubai_segmentation_inference::inference::{
-    predict_full_resolution_with_timing, render_class_mask_to_rgb, InferenceTiming, TilingConfig,
-    CLASS_NAMES, NUM_CLASSES,
+    calculate_mask_iou, decode_ground_truth_mask, predict_full_resolution_with_timing,
+    render_class_mask_to_rgb, InferenceTiming, TilingConfig, CLASS_NAMES, NUM_CLASSES,
 };
 use dubai_segmentation_inference::logging::{
-    get_utc_timestamp, resolve_log_dir, save_run_log, ImageInferenceLogEntry, RunSummaryMetrics,
-    SingleRunInferenceLog,
+    get_utc_timestamp, resolve_log_dir, save_run_log, ImageInferenceLogEntry, IouMetricsLog,
+    RunSummaryMetrics, SingleRunInferenceLog,
 };
 use dubai_segmentation_inference::onnx_model::OnnxModel;
 use image::{ColorType, GenericImageView};
@@ -31,6 +31,7 @@ struct CliConfig {
     model_path: PathBuf,
     input_path: PathBuf,
     output_path: Option<PathBuf>,
+    masks_path: Option<PathBuf>,
     log_dir: PathBuf,
     tiling: TilingConfig,
 }
@@ -50,6 +51,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     println!("============================================================");
     println!("Model:      {}", config.model_path.display());
     println!("Input:      {}", config.input_path.display());
+    if let Some(ref m) = config.masks_path {
+        println!("Masks:      {}", m.display());
+    }
     println!(
         "Tiling:     tile_size={}, stride={}",
         config.tiling.tile_size, config.tiling.stride
@@ -76,6 +80,82 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn find_ground_truth_mask(masks_path: &Path, img_path: &Path) -> Result<PathBuf, String> {
+    if masks_path.is_file() {
+        return Ok(masks_path.to_path_buf());
+    }
+    if !masks_path.is_dir() {
+        return Err(format!("Mask path does not exist: {}", masks_path.display()));
+    }
+    let stem = img_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let candidates = [
+        format!("{stem}.png"),
+        format!("{stem}.jpg"),
+        format!("{stem}.jpeg"),
+        format!("{stem}.tif"),
+        format!("{stem}.tiff"),
+        format!("{stem}_mask.png"),
+        format!("{stem}_mask.jpg"),
+    ];
+
+    for candidate in &candidates {
+        let p = masks_path.join(candidate);
+        if p.exists() {
+            return Ok(p);
+        }
+    }
+
+    if let Ok(entries) = fs::read_dir(masks_path) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if let Some(entry_stem) = p.file_stem().and_then(|s| s.to_str()) {
+                if entry_stem.eq_ignore_ascii_case(stem)
+                    || entry_stem.eq_ignore_ascii_case(&format!("{stem}_mask"))
+                {
+                    return Ok(p);
+                }
+            }
+        }
+    }
+
+    Err(format!(
+        "No matching ground truth mask found for '{}' in '{}'",
+        img_path.display(),
+        masks_path.display()
+    ))
+}
+
+fn load_ground_truth_mask(
+    mask_file: &Path,
+    expected_width: usize,
+    expected_height: usize,
+) -> Result<Vec<u8>, String> {
+    let img = image::open(mask_file)
+        .map_err(|e| format!("Failed to read ground-truth mask '{}': {e}", mask_file.display()))?;
+    let (w, h) = img.dimensions();
+    if w as usize != expected_width || h as usize != expected_height {
+        return Err(format!(
+            "Ground-truth mask '{}' dimensions ({}x{}) do not match predicted dimensions ({}x{})",
+            mask_file.display(),
+            w,
+            h,
+            expected_width,
+            expected_height
+        ));
+    }
+    let (raw_bytes, channels) = match img {
+        image::DynamicImage::ImageLuma8(luma) => (luma.into_raw(), 1),
+        image::DynamicImage::ImageLumaA8(luma_a) => {
+            let luma = image::DynamicImage::ImageLumaA8(luma_a).into_luma8();
+            (luma.into_raw(), 1)
+        }
+        image::DynamicImage::ImageRgb8(rgb) => (rgb.into_raw(), 3),
+        image::DynamicImage::ImageRgba8(rgba) => (rgba.into_raw(), 4),
+        other => (other.into_rgb8().into_raw(), 3),
+    };
+    decode_ground_truth_mask(&raw_bytes, expected_width, expected_height, channels)
 }
 
 fn process_single_file(
@@ -107,6 +187,30 @@ fn process_single_file(
         .saturating_sub(timing.model_forward_time)
         .as_secs_f64();
 
+    let mut iou_metrics = None;
+    if let Some(ref masks_path) = config.masks_path {
+        let mask_file = find_ground_truth_mask(masks_path, &config.input_path)?;
+        let gt_mask = load_ground_truth_mask(&mask_file, width as usize, height as usize)?;
+        let iou_res = calculate_mask_iou(&predicted_mask, &gt_mask)?;
+
+        println!("\nIoU Evaluation (vs {}):", mask_file.display());
+        println!("  IoU: mIoU={:.4}", iou_res.mean_iou);
+        let mut per_class = [None; NUM_CLASSES - 1];
+        for c in 0..NUM_CLASSES - 1 {
+            if iou_res.unions[c] == 0 {
+                println!("    {}: N/A (absent)", CLASS_NAMES[c]);
+            } else {
+                let val = iou_res.per_class_iou[c];
+                println!("    {}: {:.4}", CLASS_NAMES[c], val);
+                per_class[c] = Some(val);
+            }
+        }
+        iou_metrics = Some(IouMetricsLog {
+            mean_iou: iou_res.mean_iou,
+            per_class_iou: per_class,
+        });
+    }
+
     let image_entry = ImageInferenceLogEntry {
         image_filename: config
             .input_path
@@ -122,6 +226,7 @@ fn process_single_file(
         tile_count: timing.tile_count,
         avg_tile_forward_ms: timing.avg_tile_forward_ms(),
         pre_post_processing_secs: pre_post_secs,
+        iou: iou_metrics.clone(),
     };
 
     let summary = RunSummaryMetrics {
@@ -133,6 +238,7 @@ fn process_single_file(
         avg_tile_forward_ms: timing.avg_tile_forward_ms(),
         total_elapsed_secs: total_secs,
         results_saved_to: out_file_path.to_string_lossy().to_string(),
+        iou: iou_metrics,
     };
 
     let run_log = SingleRunInferenceLog {
@@ -208,6 +314,9 @@ fn process_directory(
     let mut total_forward_time = std::time::Duration::ZERO;
     let mut total_tiles = 0usize;
     let mut image_entries = Vec::with_capacity(total_images);
+    let mut total_intersections = [0u64; NUM_CLASSES - 1];
+    let mut total_unions = [0u64; NUM_CLASSES - 1];
+    let has_masks = config.masks_path.is_some();
 
     for (idx, img_path) in image_files.iter().enumerate() {
         let stem = img_path
@@ -239,6 +348,39 @@ fn process_directory(
                     .saturating_sub(timing.model_forward_time)
                     .as_secs_f64();
 
+                let mut img_iou_metrics = None;
+                if let Some(ref masks_path) = config.masks_path {
+                    match find_ground_truth_mask(masks_path, img_path)
+                        .and_then(|mf| load_ground_truth_mask(&mf, width as usize, height as usize))
+                        .and_then(|gt| calculate_mask_iou(&mask, &gt))
+                    {
+                        Ok(iou_res) => {
+                            for c in 0..NUM_CLASSES - 1 {
+                                total_intersections[c] += iou_res.intersections[c];
+                                total_unions[c] += iou_res.unions[c];
+                            }
+                            println!("  IoU: mIoU={:.4}", iou_res.mean_iou);
+                            let mut per_class = [None; NUM_CLASSES - 1];
+                            for c in 0..NUM_CLASSES - 1 {
+                                if iou_res.unions[c] == 0 {
+                                    println!("    {}: N/A (absent)", CLASS_NAMES[c]);
+                                } else {
+                                    let val = iou_res.per_class_iou[c];
+                                    println!("    {}: {:.4}", CLASS_NAMES[c], val);
+                                    per_class[c] = Some(val);
+                                }
+                            }
+                            img_iou_metrics = Some(IouMetricsLog {
+                                mean_iou: iou_res.mean_iou,
+                                per_class_iou: per_class,
+                            });
+                        }
+                        Err(err) => {
+                            eprintln!("  IoU evaluation warning for '{}': {err}", img_path.display());
+                        }
+                    }
+                }
+
                 let entry = ImageInferenceLogEntry {
                     image_filename: img_path.file_name().unwrap().to_string_lossy().to_string(),
                     image_path: img_path.to_string_lossy().to_string(),
@@ -250,6 +392,7 @@ fn process_directory(
                     tile_count: timing.tile_count,
                     avg_tile_forward_ms: timing.avg_tile_forward_ms(),
                     pre_post_processing_secs: pre_post_secs,
+                    iou: img_iou_metrics,
                 };
                 image_entries.push(entry);
 
@@ -287,6 +430,41 @@ fn process_directory(
         0.0
     };
 
+    let summary_iou = if has_masks {
+        let mut overall_per_class = [None; NUM_CLASSES - 1];
+        let mut sum_dataset_iou = 0.0;
+        let mut count_dataset_classes = 0usize;
+        for c in 0..NUM_CLASSES - 1 {
+            if total_unions[c] > 0 {
+                let val = total_intersections[c] as f64 / total_unions[c] as f64;
+                overall_per_class[c] = Some(val);
+                sum_dataset_iou += val;
+                count_dataset_classes += 1;
+            }
+        }
+        let overall_mean = if count_dataset_classes > 0 {
+            sum_dataset_iou / count_dataset_classes as f64
+        } else {
+            0.0
+        };
+
+        println!("\nOverall dataset IoU: mIoU={:.4}", overall_mean);
+        for c in 0..NUM_CLASSES - 1 {
+            if let Some(val) = overall_per_class[c] {
+                println!("  {}: {:.4}", CLASS_NAMES[c], val);
+            } else {
+                println!("  {}: N/A (absent from dataset)", CLASS_NAMES[c]);
+            }
+        }
+
+        Some(IouMetricsLog {
+            mean_iou: overall_mean,
+            per_class_iou: overall_per_class,
+        })
+    } else {
+        None
+    };
+
     let summary = RunSummaryMetrics {
         images_processed: image_entries.len(),
         total_tiles_computed: total_tiles,
@@ -300,6 +478,7 @@ fn process_directory(
         avg_tile_forward_ms: avg_tile_ms,
         total_elapsed_secs: elapsed.as_secs_f64(),
         results_saved_to: out_dir.to_string_lossy().to_string(),
+        iou: summary_iou,
     };
 
     let run_log = SingleRunInferenceLog {
@@ -428,6 +607,7 @@ fn parse_cli_args() -> Result<CliConfig, String> {
     let mut model_path = resolve_default_model_path();
     let mut input_path: Option<PathBuf> = None;
     let mut output_path: Option<PathBuf> = None;
+    let mut masks_path: Option<PathBuf> = None;
     let mut log_dir: Option<PathBuf> = None;
     let mut tiling = TilingConfig::default();
 
@@ -445,6 +625,12 @@ fn parse_cli_args() -> Result<CliConfig, String> {
                     .next()
                     .ok_or_else(|| "Missing value for --output (-o)".to_string())?;
                 output_path = Some(PathBuf::from(val));
+            }
+            "--masks" | "-g" | "--ground-truth" => {
+                let val = args
+                    .next()
+                    .ok_or_else(|| "Missing value for --masks (-g)".to_string())?;
+                masks_path = Some(PathBuf::from(val));
             }
             "--model" | "-m" | "--weights" | "-w" => {
                 let val = args
@@ -505,6 +691,7 @@ fn parse_cli_args() -> Result<CliConfig, String> {
         model_path,
         input_path,
         output_path,
+        masks_path,
         log_dir,
         tiling,
     })
@@ -533,6 +720,7 @@ fn print_help() {
          Arguments / Options:\n  \
            -i, --input <PATH>       Path to a single image file OR a directory containing images [required]\n  \
            -o, --output <PATH>      Output PNG mask path (single file) or directory (batch mode) [default: preds_rust/]\n  \
+           -g, --masks <PATH>       Path to ground-truth mask file or directory for IoU evaluation [optional]\n  \
            -m, --model <PATH>       Path to ONNX weights [default: ../w_onnx/efficientnet_b0_tiled.onnx]\n  \
            -l, --log-dir <PATH>     Directory to save JSON inference logs [default: inference_logs/]\n  \
                --tile-size <INT>    Sliding-window tile size [default: 512]\n  \
@@ -541,7 +729,7 @@ fn print_help() {
          Examples:\n  \
            # Single file inference:\n  \
            cargo run --release -- -i ../Dataset_Flattened/images/Tile1_image_part_001.jpg -o ../preds_rust/tile1_mask.png\n\n  \
-           # Batch directory inference:\n  \
-           cargo run --release -- -i ../Dataset_Flattened/images/ -o ../preds_rust/"
+           # Batch directory inference with IoU evaluation:\n  \
+           cargo run --release -- -i ../Dataset_Flattened/images/ -g ../Dataset_Flattened/masks/ -o ../preds_rust/"
     );
 }

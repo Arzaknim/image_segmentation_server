@@ -12,6 +12,11 @@ std::pair<std::string, std::string> get_utc_timestamp();
 
 std::filesystem::path resolve_log_dir(const std::string& custom_log_dir);
 
+struct IouMetricsLog {
+    double mean_iou = 0.0;
+    std::array<std::optional<double>, NUM_CLASSES - 1> per_class_iou{};
+};
+
 struct ImageInferenceLogEntry {
     std::string image_filename;
     std::string image_path;
@@ -23,6 +28,7 @@ struct ImageInferenceLogEntry {
     size_t tile_count = 0;
     double avg_tile_forward_ms = 0.0;
     double pre_post_processing_secs = 0.0;
+    std::optional<IouMetricsLog> iou;
 };
 
 struct RunSummaryMetrics {
@@ -34,6 +40,7 @@ struct RunSummaryMetrics {
     double avg_tile_forward_ms = 0.0;
     double total_elapsed_secs = 0.0;
     std::string results_saved_to;
+    std::optional<IouMetricsLog> iou;
 };
 
 struct SingleRunInferenceLog {

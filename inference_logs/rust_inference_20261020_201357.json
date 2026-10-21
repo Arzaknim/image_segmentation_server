@@ -1,0 +1,60 @@
+{
+  "timestamp": "2026-10-20T20:13:57Z",
+  "engine": "rust",
+  "model_path": "w_onnx/efficientnet_b0_tiled.onnx",
+  "input_path": "Dataset_Flattened/images/Tile2_image_part_001.jpg",
+  "output_path": "preds_rust/tile2_mask.png",
+  "tiling": {
+    "tile_size": 512,
+    "stride": 256
+  },
+  "images": [
+    {
+      "image_filename": "Tile2_image_part_001.jpg",
+      "image_path": "Dataset_Flattened/images/Tile2_image_part_001.jpg",
+      "output_mask_path": "preds_rust/tile2_mask.png",
+      "dimensions": {
+        "width": 509,
+        "height": 544
+      },
+      "timing": {
+        "total_inference_time_seconds": 0.2786,
+        "total_inference_time_ms": 278.6,
+        "pure_onnx_forward_seconds": 0.2508,
+        "tile_count": 2,
+        "avg_tile_forward_ms": 125.38,
+        "pre_post_processing_seconds": 0.0279
+      },
+      "iou": {
+        "mean_iou": 0.4701,
+        "per_class": {
+          "Water": null,
+          "Land (unpaved area)": 0.6347,
+          "Road": 0.5129,
+          "Building": 0.7329,
+          "Vegetation": 0.0000
+        }
+      }
+    }
+  ],
+  "summary": {
+    "images_processed": 1,
+    "total_tiles_computed": 2,
+    "total_inference_time_seconds": 0.2786,
+    "avg_inference_time_per_image_seconds": 0.2786,
+    "pure_onnx_forward_secs": 0.2508,
+    "avg_tile_forward_ms": 125.38,
+    "total_elapsed_time_seconds": 0.2786,
+    "results_saved_to": "preds_rust/tile2_mask.png",
+    "iou": {
+      "mean_iou": 0.4701,
+      "per_class": {
+        "Water": null,
+        "Land (unpaved area)": 0.6347,
+        "Road": 0.5129,
+        "Building": 0.7329,
+        "Vegetation": 0.0000
+      }
+    }
+  }
+}
