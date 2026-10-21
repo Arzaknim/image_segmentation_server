@@ -13,7 +13,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
@@ -262,11 +262,19 @@ def evaluate_full_resolution(
     stride: int = 256,
     device: torch.device | str = "cuda",
     return_counts: bool = False,
-) -> Tuple[float, Dict[str, float]] | Tuple[float, Dict[str, float], np.ndarray, np.ndarray]:
-    """Evaluate validation images using sliding-window inference with global dataset mIoU."""
+    criterion: Optional[torch.nn.Module] = None,
+    compute_iou: bool = True,
+) -> Any:
+    """Evaluate validation images using sliding-window inference with global dataset mIoU.
+    
+    If criterion is passed, calculates and returns val_loss in the exact same pass.
+    If compute_iou is False, skips canvas accumulation for faster epoch-level loss computation.
+    """
     model.eval()
     total_intersections = np.zeros(num_classes, dtype=np.int64)
     total_unions = np.zeros(num_classes, dtype=np.int64)
+    running_loss = 0.0
+    total_tiles = 0
 
     mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
     std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
@@ -277,8 +285,9 @@ def evaluate_full_resolution(
         true_mask = true_mask_tensor.numpy()
         h, w = true_mask.shape
 
-        pred_canvas = np.zeros((num_classes, h, w), dtype=np.float32)
-        count_canvas = np.zeros((1, h, w), dtype=np.float32)
+        if compute_iou:
+            pred_canvas = np.zeros((num_classes, h, w), dtype=np.float32)
+            count_canvas = np.zeros((1, h, w), dtype=np.float32)
 
         for y_start in tile_starts(h, tile_size, stride):
             for x_start in tile_starts(w, tile_size, stride):
@@ -299,40 +308,68 @@ def evaluate_full_resolution(
                     tile_tensor = torch.from_numpy(tile_norm).permute(2, 0, 1).float().unsqueeze(0).to(device)
 
                 logits = model(tile_tensor)
-                probs = F.softmax(logits, dim=1).cpu().numpy()[0]
 
-                pred_canvas[:, y_start:y_start + th, x_start:x_start + tw] += probs[:, :th, :tw]
-                count_canvas[:, y_start:y_start + th, x_start:x_start + tw] += 1.0
+                if criterion is not None:
+                    mask_tile = true_mask[
+                        y_start : y_start + th,
+                        x_start : x_start + tw,
+                    ]
+                    if th < tile_size or tw < tile_size:
+                        pad_h = max(0, tile_size - th)
+                        pad_w = max(0, tile_size - tw)
+                        mask_tile = cv2.copyMakeBorder(
+                            mask_tile, 0, pad_h, 0, pad_w, cv2.BORDER_REFLECT
+                        )
+                    mask_tile_tensor = torch.as_tensor(mask_tile, dtype=torch.long, device=device).unsqueeze(0)
+                    loss = criterion(logits, mask_tile_tensor)
+                    running_loss += loss.item()
+                    total_tiles += 1
 
-        pred_canvas /= np.maximum(count_canvas, 1.0)
-        final_pred_mask = np.argmax(pred_canvas, axis=0).astype(np.uint8)
-        valid_pixels = true_mask != ignore_index
+                if compute_iou:
+                    probs = F.softmax(logits, dim=1).cpu().numpy()[0]
+                    pred_canvas[:, y_start:y_start + th, x_start:x_start + tw] += probs[:, :th, :tw]
+                    count_canvas[:, y_start:y_start + th, x_start:x_start + tw] += 1.0
 
-        for cls in range(num_classes):
-            if cls == ignore_index:
-                continue
-            pred_inds = (final_pred_mask == cls) & valid_pixels
-            true_inds = (true_mask == cls) & valid_pixels
+        if compute_iou:
+            pred_canvas /= np.maximum(count_canvas, 1.0)
+            final_pred_mask = np.argmax(pred_canvas, axis=0).astype(np.uint8)
+            valid_pixels = true_mask != ignore_index
 
-            intersection = np.logical_and(pred_inds, true_inds).sum()
-            union = np.logical_or(pred_inds, true_inds).sum()
-            total_intersections[cls] += intersection
-            total_unions[cls] += union
+            for cls in range(num_classes):
+                if cls == ignore_index:
+                    continue
+                pred_inds = (final_pred_mask == cls) & valid_pixels
+                true_inds = (true_mask == cls) & valid_pixels
+
+                intersection = np.logical_and(pred_inds, true_inds).sum()
+                union = np.logical_or(pred_inds, true_inds).sum()
+                total_intersections[cls] += intersection
+                total_unions[cls] += union
 
     per_class_ious = {}
-    print("Per-class IoUs (Global Dataset):")
-    for cls in range(num_classes):
-        if cls != ignore_index:
-            if total_unions[cls] > 0:
-                class_iou = float(total_intersections[cls] / total_unions[cls])
-                per_class_ious[CLASS_NAMES[cls]] = class_iou
-                print(f"  {CLASS_NAMES[cls]}: {class_iou:.4f}")
-            else:
-                per_class_ious[CLASS_NAMES[cls]] = float("nan")
-                print(f"  {CLASS_NAMES[cls]}: N/A (absent)")
+    mean_iou = 0.0
 
-    present_ious = [v for v in per_class_ious.values() if not np.isnan(v)]
-    mean_iou = float(np.mean(present_ious)) if present_ious else 0.0
+    if compute_iou:
+        print("Per-class IoUs (Global Dataset):")
+        for cls in range(num_classes):
+            if cls != ignore_index:
+                if total_unions[cls] > 0:
+                    class_iou = float(total_intersections[cls] / total_unions[cls])
+                    per_class_ious[CLASS_NAMES[cls]] = class_iou
+                    print(f"  {CLASS_NAMES[cls]}: {class_iou:.4f}")
+                else:
+                    per_class_ious[CLASS_NAMES[cls]] = float("nan")
+                    print(f"  {CLASS_NAMES[cls]}: N/A (absent)")
+
+        present_ious = [v for v in per_class_ious.values() if not np.isnan(v)]
+        mean_iou = float(np.mean(present_ious)) if present_ious else 0.0
+
+    if criterion is not None:
+        avg_loss = (running_loss / total_tiles) if total_tiles > 0 else 0.0
+        if return_counts:
+            return avg_loss, mean_iou, per_class_ious, total_intersections, total_unions
+        return avg_loss, mean_iou, per_class_ious
+
     if return_counts:
         return mean_iou, per_class_ious, total_intersections, total_unions
     return mean_iou, per_class_ious
@@ -497,25 +534,16 @@ def run_kfold_training(
                     epoch_loss = running_loss / len(train_dataset)
                     scheduler.step()
 
-                    # Validate fold on validation tiles for loss
-                    val_loss, _, _ = validate_tiles(
-                        model,
-                        val_loader,
-                        criterion,
-                        dev,
-                        num_classes=NUM_CLASSES,
-                        ignore_index=IGNORE_INDEX,
-                    )
-
                     val_fullres_miou = 0.0
-                    log_msg = (
-                        f"Epoch [{epoch + 1}/{num_epochs}] | "
-                        f"Train Loss: {epoch_loss:.4f} | "
-                        f"Val Loss: {val_loss:.4f}"
-                    )
+                    val_loss = 0.0
+                    log_msg = f"Epoch [{epoch + 1}/{num_epochs}] | Train Loss: {epoch_loss:.4f}"
 
-                    if (epoch + 1) % eval_every == 0:
-                        val_fullres_miou, _ = evaluate_full_resolution(
+                    if val_imgs:
+                        should_eval_miou = (epoch + 1) % eval_every == 0
+                        if should_eval_miou:
+                            print(f"\n--- Fold {fold_idx} Epoch [{epoch + 1}/{num_epochs}] Full-Resolution Sliding Window Validation ---")
+
+                        val_loss, val_fullres_miou, _ = evaluate_full_resolution(
                             model,
                             val_imgs,
                             val_masks,
@@ -523,12 +551,17 @@ def run_kfold_training(
                             num_classes=NUM_CLASSES,
                             ignore_index=IGNORE_INDEX,
                             device=dev,
+                            criterion=criterion,
+                            compute_iou=should_eval_miou,
                         )
-                        log_msg += f" | Val Full-Res Global mIoU: {val_fullres_miou:.4f}"
+                        log_msg += f" | Val Loss: {val_loss:.4f}"
 
-                        if val_fullres_miou > best_fold_score:
-                            best_fold_score = val_fullres_miou
-                            best_fold_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+                        if should_eval_miou:
+                            log_msg += f" | Val Full-Res Global mIoU: {val_fullres_miou:.4f}"
+
+                            if val_fullres_miou > best_fold_score:
+                                best_fold_score = val_fullres_miou
+                                best_fold_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
 
                     log_msg += f" | LR: {current_lr:.2e}"
                     print(log_msg)

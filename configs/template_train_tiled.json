@@ -26,7 +26,12 @@
     "_comment_val_size": "Fraction of dataset reserved for validation (0.0 to disable)",
     "random_seed": 42,
     "tile_size": 512,
-    "tile_stride": 256,
+    "crops_per_image": 16,
+    "_comment_crops_per_image": "Number of random crops sampled per training image per epoch",
+    "val_stride": null,
+    "_comment_val_stride": "Validation sliding window stride (null = full stride = tile_size)",
+    "test_stride": null,
+    "_comment_test_stride": "Testing sliding window stride (null = half stride = tile_size // 2)",
     "num_workers": 4
   },
   "training": {

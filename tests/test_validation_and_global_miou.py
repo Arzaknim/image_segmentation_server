@@ -236,6 +236,57 @@ class TestValidationAndGlobalMIoU(unittest.TestCase):
             self.assertAlmostEqual(per_class_3["Water"], 393216 / 655360, places=4)
             # Under macro-averaging, Image 3 would have union=0 -> skipped (or 0), giving 0.75 (or 0.50), NOT 0.60!
 
+            # Test single-pass with criterion
+            criterion = nn.CrossEntropyLoss(ignore_index=5)
+            val_loss, miou_single, per_class_single = train_tiled.evaluate_full_resolution(
+                model=model,
+                image_paths=[str(img_dir / "img1.png"), str(img_dir / "img2.png")],
+                mask_paths=[str(mask_dir / "img1.png"), str(mask_dir / "img2.png")],
+                validation_transform=val_transform,
+                num_classes=6,
+                ignore_index=5,
+                tile_size=512,
+                stride=512,
+                device="cpu",
+                criterion=criterion,
+            )
+            self.assertGreater(val_loss, 0.0)
+            self.assertAlmostEqual(miou_single, mean_iou, places=4)
+            self.assertAlmostEqual(per_class_single["Water"], 0.75, places=4)
+
+    def test_random_crop_dataset(self):
+        """Test RandomCropDubaiDataset yields crops with expected shape and repetition."""
+        import cv2
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            img_dir = Path(temp_dir) / "images"
+            mask_dir = Path(temp_dir) / "masks"
+            img_dir.mkdir()
+            mask_dir.mkdir()
+
+            water_bgr = np.array([41, 169, 226], dtype=np.uint8)
+            img = np.full((600, 700, 3), 128, dtype=np.uint8)
+            mask = np.zeros((600, 700, 3), dtype=np.uint8)
+            mask[:, :] = water_bgr
+
+            cv2.imwrite(str(img_dir / "sample.png"), img)
+            cv2.imwrite(str(mask_dir / "sample.png"), mask)
+
+            train_tf, _, _ = train_tiled.get_transforms(img_size=512)
+            dataset = train_tiled.RandomCropDubaiDataset(
+                [str(img_dir / "sample.png")],
+                [str(mask_dir / "sample.png")],
+                transform=train_tf,
+                crops_per_image=4,
+                preload=True,
+            )
+            self.assertEqual(len(dataset), 4)
+
+            crop_img, crop_mask = dataset[0]
+            self.assertEqual(crop_img.shape, (3, 512, 512))
+            self.assertEqual(crop_mask.shape, (512, 512))
+            self.assertEqual(crop_mask.dtype, torch.long)
+
 
 if __name__ == "__main__":
     unittest.main()

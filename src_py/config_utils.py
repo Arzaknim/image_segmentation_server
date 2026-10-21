@@ -57,22 +57,11 @@ def flatten_config(config: Dict[str, Any]) -> Dict[str, Any]:
                 if "checkpoint_path" in val:
                     flat["checkpoint_path"] = val["checkpoint_path"]
             elif key in ("dataset", "data"):
-                for subk in (
-                    "image_dir",
-                    "mask_dir",
-                    "dataset_base_dir",
-                    "dataset_dir",
-                    "test_size",
-                    "val_size",
-                    "random_seed",
-                    "tile_size",
-                    "tile_stride",
-                    "stride",
-                    "num_workers",
-                ):
-                    if subk in val:
-                        norm_k = "tile_stride" if subk == "stride" else "dataset_dir" if subk == "dataset_base_dir" else subk
-                        flat[norm_k] = val[subk]
+                for subk, subv in val.items():
+                    if subk.startswith("_"):
+                        continue
+                    norm_k = "tile_stride" if subk == "stride" else "dataset_dir" if subk == "dataset_base_dir" else subk
+                    flat[norm_k] = subv
             elif key in ("training", "train"):
                 for subk in ("num_epochs", "epochs", "batch_size", "device", "eval_every", "log_dir"):
                     if subk in val:

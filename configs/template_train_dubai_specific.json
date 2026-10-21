@@ -1,0 +1,103 @@
+{
+  "model": {
+    "name": "efficientnet_b0",
+    "_options_name": [
+      "efficientnet_b0 (Baseline U-Net, 5.3M params, fast & accurate)",
+      "efficientnet_b2 (U-Net with EfficientNet-B2 backbone, 9.1M params)",
+      "efficientnet_b3 (U-Net with EfficientNet-B3 backbone, 12.2M params)",
+      "segformer_b0 (Vision Transformer MiT-B0 + MLP decoder, 3.7M params, INT8 friendly)",
+      "segformer_b1 (Vision Transformer MiT-B1 + MLP decoder, 13.7M params, high mIoU)",
+      "segformer_b2 (Vision Transformer MiT-B2 + MLP decoder, 24.7M params)",
+      "fastvit_t8 (Structural reparameterization hybrid, 4.0M params, ultra-fast)",
+      "fastvit_sa12 (Self-attention hybrid, 11.5M params, high aerial mIoU)",
+      "fastvit_s12 (Convolution-focused hybrid, 8.8M params)",
+      "fastvit_sa24 (Deep hybrid, 21.5M params)"
+    ],
+    "pretrained": true,
+    "_options_pretrained": [true, false],
+    "checkpoint_path": null
+  },
+  "dataset": {
+    "dataset_dir": "dubai_dataset",
+    "_comment_dataset_dir": "Path to original Dubai dataset root directory containing Tile 1..8 folders",
+    "num_train_tiles": 6,
+    "_comment_num_train_tiles": "Number of tile folders randomly assigned to training set",
+    "num_val_tiles": 1,
+    "_comment_num_val_tiles": "Number of tile folders randomly assigned to validation set",
+    "num_test_tiles": 1,
+    "_comment_num_test_tiles": "Number of tile folders randomly assigned to testing set",
+    "random_seed": 42,
+    "tile_size": 512,
+    "tile_stride": 384,
+    "_comment_tile_stride": "Sliding window stride (512 size with 384 stride yields 128px overlap)",
+    "num_workers": 4
+  },
+  "training": {
+    "num_epochs": 40,
+    "batch_size": 6,
+    "eval_every": 5,
+    "_comment_eval_every": "Frequency in epochs to run full-resolution sliding-window validation (e.g. every 5 epochs)",
+    "device": null,
+    "_options_device": [
+      null,
+      "cuda",
+      "cpu"
+    ],
+    "log_dir": "../training_logs"
+  },
+  "optimizer": {
+    "name": "AdamW",
+    "_options_name": ["AdamW", "Adam", "SGD"],
+    "lr": 0.001,
+    "weight_decay": 0.0001
+  },
+  "scheduler": {
+    "name": "CosineAnnealingLR",
+    "_options_name": ["CosineAnnealingLR", "StepLR", "None"],
+    "eta_min": 0.0001
+  },
+  "criterion": {
+    "name": "ce_dice",
+    "_options_name": [
+      "ce_dice (CrossEntropy + Dice composite - recommended default)",
+      "fuzzy (LogitFuzzyLoss: membership + T-norm Dice + De Luca-Termini entropy)",
+      "focal_bce (FocalSoftBCELoss: Focal + Soft BCE + Dice)",
+      "focal (Multiclass Focal Loss on logits)",
+      "soft_bce (Soft BCE with label smoothing)",
+      "dice (Multi-class Dice Loss)",
+      "ce (Cross Entropy Loss with optional label smoothing)"
+    ],
+    "ignore_index": 5,
+    "_comment_ignore_index": "Class index excluded from loss and metrics (5 = Unlabeled)",
+    "kwargs": {},
+    "_example_kwargs_by_criterion": {
+      "fuzzy": {
+        "fuzziness": 0.1,
+        "fuzzifier_m": 1.5,
+        "temperature": 1.0,
+        "entropy_weight": 0.0,
+        "overlap_weight": 1.0,
+        "ce_weight": 1.0,
+        "mode": "dice",
+        "smooth": 1e-5
+      },
+      "focal_bce": {
+        "gamma": 2.0,
+        "smooth_factor": 0.1,
+        "dice_weight": 1.0,
+        "bce_weight": 1.0
+      },
+      "focal": {
+        "gamma": 2.0,
+        "alpha": null
+      },
+      "soft_bce": {
+        "smooth_factor": 0.1
+      },
+      "ce": {
+        "label_smoothing": 0.0
+      }
+    }
+  }
+}
+
